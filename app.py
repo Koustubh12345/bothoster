@@ -2,7 +2,8 @@ import os
 import threading
 import mimetypes
 from http.server import HTTPServer, SimpleHTTPRequestHandler
-import bot  # Import your bot's logic from bot.py
+import bot  
+# Import your bot's logic from bot.py
 
 # --- Configuration ---
 PORT = int(os.environ.get("PORT", 10000))
