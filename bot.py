@@ -65,7 +65,7 @@ try:
         MAX_BOT_FILE_SIZE = users_config.get("bot_settings", {}).get("max_bot_file_size", 10485760)  # 10MB
         MAX_MIRROR_FILE_SIZE = users_config.get("bot_settings", {}).get("max_mirror_file_size", 2097152000) # 2 GB
         ALLOWED_FILE_TYPES = users_config.get("bot_settings", {}).get("allowed_file_types", [".py"])
-except (FileNotFound, json.JSONDecodeError):
+except (FileNotFoundError, json.JSONDecodeError):
     AUTHORIZED_USERS = [5431714552, 6392830471]
     MAX_BOTS_PER_USER = 5
     MAX_BOT_FILE_SIZE = 10485760
@@ -83,6 +83,7 @@ except (FileNotFound, json.JSONDecodeError):
     }
     with open(USERS_FILE, 'w') as f:
         json.dump(default_config, f, indent=4)
+
 
 # --- Global State ---
 running_bots: Dict[str, Dict[str, Any]] = {}
