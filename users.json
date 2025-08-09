@@ -1,8 +1,31 @@
-{
-    "authorized_users": [5431714552, 6392830471],
-    "bot_settings": {
-        "max_bots_per_user": 5,
-        "max_bot_file_size": 10485760,
-        "allowed_file_types": [".py"]
+# --- Load user configuration ---
+# Ensure the data directory exists before attempting to read/write files
+os.makedirs(DATA_DIR, exist_ok=True)
+
+try:
+    with open(USERS_FILE, 'r') as f:
+        users_config = json.load(f)
+        AUTHORIZED_USERS = users_config.get("authorized_users", [5431714552, 6392830471])
+        MAX_BOTS_PER_USER = users_config.get("bot_settings", {}).get("max_bots_per_user", 5)
+        MAX_BOT_FILE_SIZE = users_config.get("bot_settings", {}).get("max_bot_file_size", 10485760)  # 10MB
+        MAX_MIRROR_FILE_SIZE = users_config.get("bot_settings", {}).get("max_mirror_file_size", 2097152000) # 2 GB
+        ALLOWED_FILE_TYPES = users_config.get("bot_settings", {}).get("allowed_file_types", [".py"])
+except (FileNotFoundError, json.JSONDecodeError):
+    logger.warning("users.json not found or is invalid. Creating a default file.")
+    AUTHORIZED_USERS = [5431714552, 6392830471]
+    MAX_BOTS_PER_USER = 5
+    MAX_BOT_FILE_SIZE = 10485760
+    MAX_MIRROR_FILE_SIZE = 2097152000 # 2 GB
+    ALLOWED_FILE_TYPES = [".py"]
+    
+    default_config = {
+        "authorized_users": AUTHORIZED_USERS,
+        "bot_settings": {
+            "max_bots_per_user": MAX_BOTS_PER_USER,
+            "max_bot_file_size": MAX_BOT_FILE_SIZE,
+            "max_mirror_file_size": MAX_MIRROR_FILE_SIZE,
+            "allowed_file_types": ALLOWED_FILE_TYPES
+        }
     }
-}
+    with open(USERS_FILE, 'w') as f:
+        json.dump(default_config, f, indent=4)
