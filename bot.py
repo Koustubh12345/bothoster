@@ -7,12 +7,10 @@ import time
 import signal
 import tempfile
 import shutil
-import zipfile
-import io
-import random
+import re
 from datetime import datetime
 from typing import Union, Dict, Any, Optional
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Document, InputFile
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Document
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -23,8 +21,8 @@ from telegram.ext import (
     filters,
 )
 from telegram.constants import ParseMode
-from telegram.error import BadRequest, TelegramError, RetryAfter
-from telegram.request import BaseRequest
+from telegram.error import BadRequest, TelegramError
+import requests
 
 # --- Basic Setup ---
 logging.basicConfig(
@@ -36,18 +34,16 @@ logger = logging.getLogger(__name__)
 # --- Configuration ---
 # Load configuration from environment variable or use default
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8109732136:AAGoVJURJtbUJuqcN84ciC5We2Ni3W4OMYM")
+START_GIF_URL = "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExeGc1ajJrc2c3d2t6dGx0d2Z0Mml1Z2F4dW8xdTd5eHpyb3U0dXZ3eCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3o7TKsQ8UQ1hqkPvIQ/giphy.gif"
 
 # Load authorized users from file or use default
 USERS_FILE = "data/users.json"
 DATA_DIR = "data"
 BOTS_DIR = "data/bots"
-TEMP_DIR = "data/temp"
-WELCOME_MEDIA = "welcome.gif"  # Change to welcome.jpg if using an image
 
 # Create directories if they don't exist
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(BOTS_DIR, exist_ok=True)
-os.makedirs(TEMP_DIR, exist_ok=True)
 
 # Load user configuration
 try:
@@ -57,22 +53,19 @@ try:
         MAX_BOTS_PER_USER = users_config.get("bot_settings", {}).get("max_bots_per_user", 5)
         MAX_BOT_FILE_SIZE = users_config.get("bot_settings", {}).get("max_bot_file_size", 10485760)  # 10MB
         ALLOWED_FILE_TYPES = users_config.get("bot_settings", {}).get("allowed_file_types", [".py"])
-        MIRROR_MAX_SIZE = users_config.get("bot_settings", {}).get("mirror_max_size", 157286400)  # 150MB
 except (FileNotFoundError, json.JSONDecodeError):
     # Create default config if file doesn't exist or is invalid
     AUTHORIZED_USERS = [5431714552, 6392830471]
     MAX_BOTS_PER_USER = 5
     MAX_BOT_FILE_SIZE = 10485760  # 10MB
     ALLOWED_FILE_TYPES = [".py"]
-    MIRROR_MAX_SIZE = 157286400  # 150MB
     
     default_config = {
         "authorized_users": AUTHORIZED_USERS,
         "bot_settings": {
             "max_bots_per_user": MAX_BOTS_PER_USER,
             "max_bot_file_size": MAX_BOT_FILE_SIZE,
-            "allowed_file_types": ALLOWED_FILE_TYPES,
-            "mirror_max_size": MIRROR_MAX_SIZE
+            "allowed_file_types": ALLOWED_FILE_TYPES
         }
     }
     
@@ -113,32 +106,9 @@ class EMOJI:
     WARNING = "⚠️"
     FILE = "📄"
     CODE = "👨‍💻"
-    MIRROR = "🪞"
     EDIT = "✏️"
-    REACT = "😊"
-    STAR = "⭐"
-    HEART = "❤️"
-    THUMB_UP = "👍"
-    FIRE = "🔥"
-    COOL = "😎"
-    THINKING = "🤔"
-    EYES = "👀"
-    WAVE = "👋"
-
-# --- Loading Animation Messages ---
-LOADING_MESSAGES = [
-    f"{EMOJI.LOADING} Processing your request...",
-    f"{EMOJI.LOADING} Working on it...",
-    f"{EMOJI.LOADING} Almost there...",
-    f"{EMOJI.LOADING} Just a moment...",
-    f"{EMOJI.LOADING} Please wait..."
-]
-
-# --- Reaction Emojis ---
-REACTION_EMOJIS = [
-    EMOJI.STAR, EMOJI.HEART, EMOJI.THUMB_UP, EMOJI.COOL, 
-    EMOJI.THINKING, EMOJI.EYES, EMOJI.FIRE, EMOJI.WAVE
-]
+    MIRROR = "🪞"
+    CHECK = "✅"
 
 # --- Keyboard Generation Functions ---
 def get_main_menu_keyboard():
@@ -146,8 +116,8 @@ def get_main_menu_keyboard():
         [InlineKeyboardButton(f"{EMOJI.UPLOAD} Upload New Bot", callback_data='upload_start')],
         [InlineKeyboardButton(f"{EMOJI.CLIPBOARD} My Bots", callback_data='list_bots')],
         [InlineKeyboardButton(f"{EMOJI.BAR_CHART} Statistics", callback_data='stats')],
-        [InlineKeyboardButton(f"{EMOJI.MIRROR} Mirror File", callback_data='mirror_start')],
         [InlineKeyboardButton(f"{EMOJI.GEAR} Settings", callback_data='settings')],
+        [InlineKeyboardButton(f"{EMOJI.MIRROR} Mirror File", callback_data='mirror_start')],
     ]
     
     if running_bots:
@@ -163,12 +133,13 @@ def get_bot_actions_keyboard(bot_name):
             InlineKeyboardButton(f"{EMOJI.RESTART} Restart", callback_data=f'bot_action:restart:{bot_name}'),
         ],
         [
-            InlineKeyboardButton(f"{EMOJI.EDIT} Edit Code", callback_data=f'bot_action:edit:{bot_name}'),
             InlineKeyboardButton(f"{EMOJI.DELETE} Delete", callback_data=f'bot_action:delete_confirm:{bot_name}'),
+            InlineKeyboardButton(f"{EMOJI.DOWNLOAD} Download", callback_data=f'bot_action:download:{bot_name}'),
+            InlineKeyboardButton(f"{EMOJI.EDIT} Edit", callback_data=f'bot_action:edit:{bot_name}'),
         ],
         [
-            InlineKeyboardButton(f"{EMOJI.DOWNLOAD} Download Code", callback_data=f'bot_action:download:{bot_name}'),
-            InlineKeyboardButton(f"{EMOJI.LOGS} View Logs", callback_data=f'bot_action:logs:{bot_name}')
+            InlineKeyboardButton(f"{EMOJI.LOGS} Logs", callback_data=f'bot_action:logs:{bot_name}'),
+            InlineKeyboardButton(f"{EMOJI.CHECK} Status", callback_data=f'bot_action:status:{bot_name}'),
         ],
         [InlineKeyboardButton(f"{EMOJI.BACK} Back to Bot List", callback_data='list_bots')]
     ])
@@ -185,7 +156,7 @@ def get_delete_confirmation_keyboard(bot_name):
 def get_delete_all_confirmation_keyboard():
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton(f"{EMOJI.DELETE} Yes, Delete All Bots", callback_data=f'delete_all_final'),
+            InlineKeyboardButton(f"{EMOJI.DELETE} Yes, Delete All", callback_data=f'delete_all_final'),
             InlineKeyboardButton(f"{EMOJI.CANCEL} No, Cancel", callback_data='main_menu')
         ],
     ])
@@ -195,27 +166,20 @@ def get_back_to_main_menu_keyboard():
 
 def get_settings_keyboard():
     keyboard = [
-        [InlineKeyboardButton(f"{EMOJI.ROBOT} Manage Authorized Users", callback_data='settings:users')],
+        [InlineKeyboardButton(f"{EMOJI.ROBOT} Manage Users", callback_data='settings:users')],
         [InlineKeyboardButton(f"{EMOJI.GEAR} Bot Settings", callback_data='settings:bots')],
-        [InlineKeyboardButton(f"{EMOJI.REACT} Reaction Settings", callback_data='settings:reactions')],
         [InlineKeyboardButton(f"{EMOJI.BACK} Main Menu", callback_data='main_menu')]
     ]
     return InlineKeyboardMarkup(keyboard)
 
-def get_edit_bot_keyboard(bot_name):
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(f"{EMOJI.MEMO} Edit Bot Code", callback_data=f'edit_bot:code:{bot_name}'),
-            InlineKeyboardButton(f"{EMOJI.PACKAGE} Edit Requirements", callback_data=f'edit_bot:req:{bot_name}'),
-        ],
-        [
-            InlineKeyboardButton(f"{EMOJI.KEY} Edit Token", callback_data=f'edit_bot:token:{bot_name}'),
-            InlineKeyboardButton(f"{EMOJI.RESTART} Apply & Restart", callback_data=f'edit_bot:restart:{bot_name}'),
-        ],
-        [InlineKeyboardButton(f"{EMOJI.BACK} Back to Bot Actions", callback_data=f'select_bot:{bot_name}')]
-    ])
-
 # --- Helper Functions ---
+async def send_typing(update: Update):
+    """Send typing action to indicate processing."""
+    try:
+        await update.message.chat.send_action(action="typing")
+    except Exception:
+        pass
+
 async def edit_or_reply_message(update: Update, text: str, reply_markup: InlineKeyboardMarkup = None):
     """Edits the message if it's a callback query, otherwise sends a new message."""
     try:
@@ -231,24 +195,6 @@ async def edit_or_reply_message(update: Update, text: str, reply_markup: InlineK
             await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
     except Exception as e:
         logger.error(f"Error in edit_or_reply_message: {e}")
-
-async def send_loading_message(update: Update):
-    """Send a loading message with random animation text."""
-    loading_text = random.choice(LOADING_MESSAGES)
-    if update.callback_query:
-        await update.callback_query.answer(loading_text)
-        return await update.callback_query.edit_message_text(loading_text, parse_mode=ParseMode.MARKDOWN)
-    else:
-        return await update.message.reply_text(loading_text, parse_mode=ParseMode.MARKDOWN)
-
-async def add_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Add a random reaction to the user's message."""
-    try:
-        if update.message and update.message.text:
-            reaction = random.choice(REACTION_EMOJIS)
-            await update.message.react(reaction)
-    except Exception as e:
-        logger.error(f"Error adding reaction: {e}")
 
 def create_bot_directory(bot_name: str) -> str:
     """Create a directory for the bot files."""
@@ -266,12 +212,19 @@ def start_bot_subprocess(bot_name: str, bot_token: str, bot_code: str, requireme
         bot_file_path = os.path.join(bot_dir, "bot.py")
         
         # Inject the token into the script
-        modified_script = bot_code.replace("TOKEN = \"\"", f"TOKEN = \"{bot_token}\"")
-        modified_script = modified_script.replace("TOKEN = ''", f"TOKEN = \"{bot_token}\"")
-        modified_script = modified_script.replace("TOKEN=os.getenv(\"BOT_TOKEN\")", f"TOKEN = \"{bot_token}\"")
+        token_patterns = [
+            r'TOKEN\s*=\s*["\']\s*["\']',
+            r'TOKEN\s*=\s*os\.getenv\s*\(\s*["\']BOT_TOKEN["\']\s*\)',
+            r'BOT_TOKEN\s*=\s*["\']\s*["\']',
+            r'BOT_TOKEN\s*=\s*os\.getenv\s*\(\s*["\']BOT_TOKEN["\']\s*\)'
+        ]
+        
+        for pattern in token_patterns:
+            replacement = f"TOKEN = \"{bot_token}\""
+            bot_code = re.sub(pattern, replacement, bot_code)
         
         with open(bot_file_path, 'w') as f:
-            f.write(modified_script)
+            f.write(bot_code)
         
         # Create requirements.txt if provided
         if requirements_content:
@@ -294,7 +247,7 @@ def start_bot_subprocess(bot_name: str, bot_token: str, bot_code: str, requireme
         
         # Start the bot process
         process = subprocess.Popen(
-            ['python', bot_file_path],
+            ['python', 'bot.py'],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=bot_dir
@@ -379,74 +332,39 @@ async def download_file(update: Update, document: Document) -> Optional[str]:
     try:
         file = await update.message.effective_user.bot.get_file(document.file_id)
         
-        # Create a temporary file path
-        temp_file_path = os.path.join(TEMP_DIR, f"temp_{int(time.time())}_{document.file_name}")
-        
-        # Download the file
-        await file.download_to_drive(custom_path=temp_file_path)
+        # Download to a temporary file
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            await file.download_to_drive(custom_path=temp_file.name)
+            temp_file_path = temp_file.name
         
         # Read the content
         with open(temp_file_path, 'rb') as f:
             content = f.read()
         
         # Clean up the temporary file
-        try:
-            os.unlink(temp_file_path)
-        except:
-            pass
+        os.unlink(temp_file_path)
         
-        return content.decode('utf-8')
+        return content.decode('utf-8', errors='replace')
     except Exception as e:
         logger.error(f"Error downloading file: {e}")
         return None
 
-async def mirror_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Mirror a file from the user to the bot."""
-    if not update.message.document:
-        await update.message.reply_text(f"{EMOJI.CANCEL} Please send a file to mirror.")
-        return
-    
-    document = update.message.document
-    
-    # Check file size
-    if document.file_size > MIRROR_MAX_SIZE:
-        await update.message.reply_text(f"{EMOJI.CANCEL} File is too large. Maximum size is {MIRROR_MAX_SIZE/1024/1024}MB.")
-        return
-    
-    loading_msg = await update.message.reply_text(f"{EMOJI.LOADING} Mirroring your file...")
-    
+async def react_to_message(update: Update, reaction: str = "🤖"):
+    """React to a message with the specified emoji."""
     try:
-        # Get the file
-        file = await update.message.effective_user.bot.get_file(document.file_id)
-        
-        # Create a temporary file path
-        temp_file_path = os.path.join(TEMP_DIR, f"mirror_{int(time.time())}_{document.file_name}")
-        
-        # Download the file
-        await file.download_to_drive(custom_path=temp_file_path)
-        
-        # Send the file back
-        with open(temp_file_path, 'rb') as f:
-            await update.message.reply_document(
-                document=f,
-                caption=f"{EMOJI.SUCCESS} Here's your mirrored file: {document.file_name}"
-            )
-        
-        # Clean up the temporary file
-        try:
-            os.unlink(temp_file_path)
-        except:
-            pass
-        
-        await loading_msg.delete()
-        
+        message = update.message or update.callback_query.message
+        await message.bot.set_message_reaction(
+            chat_id=message.chat_id,
+            message_id=message.message_id,
+            reaction=[{"type": "emoji", "emoji": reaction}],
+            is_big=False
+        )
     except Exception as e:
-        logger.error(f"Error mirroring file: {e}")
-        await loading_msg.edit_text(f"{EMOJI.CANCEL} Failed to mirror the file. Please try again.")
+        logger.error(f"Failed to react to message: {e}")
 
 # --- Core Command Handlers ---
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Displays the main menu with a welcome message and image/GIF."""
+    """Displays the main menu with a welcome message."""
     user_id = update.effective_user.id
     
     # Check if user is authorized
@@ -454,68 +372,45 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("You are not authorized to use this bot.")
         return
     
+    # Send GIF first
+    await update.message.reply_animation(START_GIF_URL)
+    
     welcome_message = f"""
 {EMOJI.SPARKLES} *Welcome to BotHoster Pro!* {EMOJI.SPARKLES}
 I can host and manage your Python Telegram bots.
 {EMOJI.GEAR} Use the menu below to get started.
 """
-    
-    # Try to send a GIF or image with the welcome message
-    try:
-        if os.path.exists(WELCOME_MEDIA):
-            with open(WELCOME_MEDIA, 'rb') as media:
-                if WELCOME_MEDIA.endswith('.gif'):
-                    await update.message.reply_animation(
-                        animation=media,
-                        caption=welcome_message,
-                        parse_mode=ParseMode.MARKDOWN,
-                        reply_markup=get_main_menu_keyboard()
-                    )
-                else:
-                    await update.message.reply_photo(
-                        photo=media,
-                        caption=welcome_message,
-                        parse_mode=ParseMode.MARKDOWN,
-                        reply_markup=get_main_menu_keyboard()
-                    )
-        else:
-            # If media file doesn't exist, just send text
-            await update.message.reply_text(
-                welcome_message,
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=get_main_menu_keyboard()
-            )
-    except Exception as e:
-        logger.error(f"Error sending welcome media: {e}")
-        # If media fails, just send text
-        await update.message.reply_text(
-            welcome_message,
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=get_main_menu_keyboard()
-        )
+    await update.message.reply_text(
+        welcome_message,
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=get_main_menu_keyboard()
+    )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Displays the help message."""
+    await react_to_message(update)
     help_text = f"""
 {EMOJI.QUESTION} *BotHoster Pro Help* {EMOJI.QUESTION}
 {EMOJI.ROCKET} *Available Commands:*
 `/start` - Show the main menu.
-`/upload` - Begin the process to upload a new bot.
+`/upload` - Begin uploading a new bot.
 `/list` - Show your running and stopped bots.
 `/stats` - View hosting statistics.
 `/restart <bot_name>` - Restart a specific bot.
 `/stop <bot_name>` - Stop a specific bot.
 `/logs <bot_name>` - View logs of a specific bot.
-`/mirror` - Mirror a file up to 150MB.
+`/mirror` - Mirror a file to a cloud service.
 `/edit <bot_name>` - Edit an existing bot.
 `/help` - Show this help message.
-`/cancel` - Cancel the current operation (like bot upload).
+`/cancel` - Cancel the current operation.
+
 {EMOJI.INFO} The easiest way to manage your bots is by using the interactive buttons!
 """
     await edit_or_reply_message(update, help_text, get_main_menu_keyboard())
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Shows statistics about hosted bots."""
+    await react_to_message(update)
     if update.callback_query:
         await update.callback_query.answer("Crunching the numbers...")
     
@@ -533,6 +428,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def list_bots_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Lists all managed bots with buttons to interact with them."""
+    await react_to_message(update)
     if update.callback_query:
         await update.callback_query.answer("Fetching your bots...")
         
@@ -554,6 +450,7 @@ async def list_bots_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Restarts a specified bot."""
+    await react_to_message(update)
     if len(context.args) < 1:
         await update.message.reply_text("Please provide a bot name. Usage: `/restart <bot_name>`", parse_mode=ParseMode.MARKDOWN)
         return
@@ -572,6 +469,7 @@ async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Stops a specified bot."""
+    await react_to_message(update)
     if len(context.args) < 1:
         await update.message.reply_text("Please provide a bot name. Usage: `/stop <bot_name>`", parse_mode=ParseMode.MARKDOWN)
         return
@@ -588,6 +486,7 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Shows logs for a specified bot."""
+    await react_to_message(update)
     if len(context.args) < 1:
         await update.message.reply_text("Please provide a bot name. Usage: `/logs <bot_name>`", parse_mode=ParseMode.MARKDOWN)
         return
@@ -612,57 +511,66 @@ async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(f"{EMOJI.LOGS} *Logs for `{bot_name}`:*\n\n```\n{log_output}\n```", parse_mode=ParseMode.MARKDOWN)
 
-async def mirror_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Starts the file mirroring process."""
-    user_id = update.effective_user.id
-    
-    # Check if user is authorized
-    if user_id not in AUTHORIZED_USERS:
-        await update.message.reply_text("You are not authorized to use this bot.")
-        return
-    
-    await update.message.reply_text(
-        f"{EMOJI.MIRROR} *File Mirroring*\n\n"
-        f"Please send me a file (up to {MIRROR_MAX_SIZE/1024/1024}MB) that you want to mirror.",
-        parse_mode=ParseMode.MARKDOWN
-    )
-
-async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Edits an existing bot."""
-    if len(context.args) < 1:
-        await update.message.reply_text("Please provide a bot name. Usage: `/edit <bot_name>`", parse_mode=ParseMode.MARKDOWN)
-        return
-    
-    bot_name = context.args[0]
-    if bot_name not in running_bots:
-        await update.message.reply_text(f"Bot `{bot_name}` not found.", parse_mode=ParseMode.MARKDOWN)
-        return
-    
-    # Show the edit menu
-    info = running_bots[bot_name]
-    update_bot_logs(bot_name)
-    process_status = info['process'].poll()
-    status_emoji = EMOJI.GREEN_CIRCLE if process_status is None else EMOJI.RED_CIRCLE
-    
-    uptime = datetime.now() - info['start_time'] if process_status is None else "N/A"
-    
-    text = f"""
-{EMOJI.GEAR} *Editing Bot: `{bot_name}`*
-Status: {status_emoji} *{'Running' if status_emoji == EMOJI.GREEN_CIRCLE else 'Stopped'}*
-Uptime: `{str(uptime).split('.')[0]}`
-What would you like to edit?
-"""
-    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_edit_bot_keyboard(bot_name))
-
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Shows the settings menu."""
+    await react_to_message(update)
     await edit_or_reply_message(update, f"{EMOJI.GEAR} *Settings*\n\nChoose an option to configure:", reply_markup=get_settings_keyboard())
+
+# --- File Mirroring Function ---
+async def mirror_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Mirrors a file to a cloud service."""
+    await react_to_message(update)
+    await send_typing(update)
+    
+    if not update.message.document:
+        await update.message.reply_text("Please send a file to mirror.")
+        return
+    
+    document = update.message.document
+    if document.file_size > 150 * 1024 * 1024:  # 150MB limit
+        await update.message.reply_text(f"{EMOJI.WARNING} File is too large. Maximum size is 150MB.")
+        return
+    
+    # Upload to transfer.sh
+    try:
+        file = await update.message.effective_user.bot.get_file(document.file_id)
+        
+        # Download to a temporary file
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            await file.download_to_drive(custom_path=temp_file.name)
+            temp_file_path = temp_file.name
+        
+        # Upload to transfer.sh
+        with open(temp_file_path, 'rb') as f:
+            response = requests.put(
+                f'https://transfer.sh/{document.file_name}',
+                files={'file': f}
+            )
+        
+        # Clean up the temporary file
+        os.unlink(temp_file_path)
+        
+        if response.status_code == 200:
+            download_url = response.text.strip()
+            await update.message.reply_text(
+                f"{EMOJI.MIRROR} File mirrored successfully!\n\n"
+                f"📄 *File Name:* `{document.file_name}`\n"
+                f"📦 *Size:* `{document.file_size / 1024 / 1024:.2f} MB`\n"
+                f"🔗 *Download URL:* {download_url}",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            await update.message.reply_text(f"{EMOJI.CANCEL} Failed to mirror file. Status code: {response.status_code}")
+    except Exception as e:
+        logger.error(f"Mirror error: {e}")
+        await update.message.reply_text(f"{EMOJI.CANCEL} An error occurred while mirroring the file.")
 
 # --- Conversation Handler for Bot Upload ---
 (ASK_BOT_NAME, GET_BOT_FILE, GET_TOKEN, GET_REQUIREMENTS) = range(4)
 
 async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Starts the bot upload conversation."""
+    await react_to_message(update)
     if update.callback_query:
         await update.callback_query.answer()
         user_id = update.callback_query.from_user.id
@@ -694,6 +602,7 @@ Please use letters, numbers, and underscores only.
 
 async def ask_bot_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receives bot name and asks for the bot.py file."""
+    await react_to_message(update)
     bot_name = update.message.text.strip()
     if not bot_name.replace('_', '').isalnum():
         await update.message.reply_text(f"{EMOJI.CANCEL} Invalid name. Please use only letters, numbers, and underscores. Try again.")
@@ -713,6 +622,7 @@ async def ask_bot_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
 async def receive_bot_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receives bot.py and asks for the bot token."""
+    await react_to_message(update)
     document = update.message.document
     if not document.file_name.endswith('.py'):
         await update.message.reply_text(f"{EMOJI.CANCEL} That's not a Python file. Please send a `.py` file.")
@@ -725,7 +635,7 @@ async def receive_bot_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     
     bot_name = context.user_data['bot_name']
     
-    loading_msg = await send_loading_message(update)
+    loading_msg = await update.message.reply_text(f"{EMOJI.LOADING} Downloading your bot file...")
     
     # Get the file content
     bot_code = await download_file(update, document)
@@ -745,6 +655,7 @@ async def receive_bot_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def receive_token_and_ask_requirements(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receives token and asks for requirements.txt."""
+    await react_to_message(update)
     bot_token = update.message.text.strip()
     bot_name = context.user_data['bot_name']
     
@@ -786,20 +697,20 @@ async def receive_requirements_and_run(update: Update, context: ContextTypes.DEF
         return GET_REQUIREMENTS  # Wait for the file
     
     # If no requirements, start the bot
-    loading_msg = await send_loading_message(update)
+    status_msg = await update.message.reply_text(f"{EMOJI.LOADING} Starting your bot...")
     
     # Start the bot subprocess
     bot_info = start_bot_subprocess(bot_name, bot_token, bot_code, requirements_content)
     
     if bot_info:
         running_bots[bot_name] = bot_info
-        await loading_msg.edit_text(
+        await status_msg.edit_text(
             f"{EMOJI.PARTY} Hooray! Your bot `{bot_name}` is now running!",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=get_back_to_main_menu_keyboard()
         )
     else:
-        await loading_msg.edit_text(
+        await status_msg.edit_text(
             f"{EMOJI.CANCEL} A critical error occurred while trying to start your bot. "
             "Please check the hoster bot's console logs for more details.",
             reply_markup=get_back_to_main_menu_keyboard()
@@ -810,36 +721,37 @@ async def receive_requirements_and_run(update: Update, context: ContextTypes.DEF
 
 async def receive_requirements_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receives requirements.txt and runs the bot."""
+    await react_to_message(update)
     document = update.message.document
     if not document.file_name.endswith('.txt'):
         await update.message.reply_text(f"{EMOJI.CANCEL} That's not a text file. Please send a `requirements.txt` file.")
         return GET_REQUIREMENTS
     
-    loading_msg = await send_loading_message(update)
-    
     # Get the file content
     requirements_content = await download_file(update, document)
     
     if not requirements_content:
-        await loading_msg.edit_text(f"{EMOJI.CANCEL} Failed to download the requirements file. Please try again.")
+        await update.message.reply_text(f"{EMOJI.CANCEL} Failed to download the requirements file. Please try again.")
         return GET_REQUIREMENTS
     
     bot_name = context.user_data['bot_name']
     bot_token = context.user_data['bot_token']
     bot_code = context.user_data['bot_code']
     
+    status_msg = await update.message.reply_text(f"{EMOJI.LOADING} Starting your bot with requirements...")
+    
     # Start the bot subprocess
     bot_info = start_bot_subprocess(bot_name, bot_token, bot_code, requirements_content)
     
     if bot_info:
         running_bots[bot_name] = bot_info
-        await loading_msg.edit_text(
+        await status_msg.edit_text(
             f"{EMOJI.PARTY} Hooray! Your bot `{bot_name}` is now running with its requirements!",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=get_back_to_main_menu_keyboard()
         )
     else:
-        await loading_msg.edit_text(
+        await status_msg.edit_text(
             f"{EMOJI.CANCEL} A critical error occurred while trying to start your bot. "
             "Please check the hoster bot's console logs for more details.",
             reply_markup=get_back_to_main_menu_keyboard()
@@ -850,6 +762,7 @@ async def receive_requirements_file(update: Update, context: ContextTypes.DEFAUL
 
 async def cancel_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancels and ends the upload conversation."""
+    await react_to_message(update)
     await update.message.reply_text(
         f"{EMOJI.CANCEL} Upload process cancelled.",
         reply_markup=get_main_menu_keyboard()
@@ -858,177 +771,81 @@ async def cancel_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     context.user_data.clear()
     return ConversationHandler.END
 
-# --- Conversation Handler for Bot Editing ---
-(EDIT_SELECT_ACTION, EDIT_GET_CODE, EDIT_GET_REQ, EDIT_GET_TOKEN) = range(4)
-
-async def edit_bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Starts the bot editing conversation."""
-    await update.callback_query.answer()
+# --- Edit Bot Functionality ---
+async def edit_bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Starts the bot editing process."""
+    query = update.callback_query
+    await query.answer()
     
-    _, action, bot_name = update.callback_query.data.split(':')
+    _, _, bot_name = query.data.split(':')
+    
+    if bot_name not in running_bots:
+        await query.edit_message_text(f"{EMOJI.CANCEL} Bot not found.", reply_markup=get_back_to_main_menu_keyboard())
+        return
     
     context.user_data['edit_bot_name'] = bot_name
     
-    if action == 'code':
-        await update.callback_query.edit_message_text(
-            f"{EMOJI.MEMO} Please send me the updated Python code for `{bot_name}`.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return EDIT_GET_CODE
-    
-    elif action == 'req':
-        await update.callback_query.edit_message_text(
-            f"{EMOJI.PACKAGE} Please send me the updated requirements.txt for `{bot_name}`.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return EDIT_GET_REQ
-    
-    elif action == 'token':
-        await update.callback_query.edit_message_text(
-            f"{EMOJI.KEY} Please send me the updated token for `{bot_name}`.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return EDIT_GET_TOKEN
-    
-    elif action == 'restart':
-        await update.callback_query.edit_message_text(
-            f"{EMOJI.LOADING} Applying changes and restarting `{bot_name}`...",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        
-        if restart_bot_process(bot_name):
-            await update.callback_query.edit_message_text(
-                f"{EMOJI.SUCCESS} Bot `{bot_name}` has been successfully restarted!",
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=get_edit_bot_keyboard(bot_name)
-            )
-        else:
-            await update.callback_query.edit_message_text(
-                f"{EMOJI.CANCEL} Failed to restart `{bot_name}`.",
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=get_edit_bot_keyboard(bot_name)
-            )
-        
-        return ConversationHandler.END
-    
-    return ConversationHandler.END
+    await query.edit_message_text(
+        f"{EMOJI.EDIT} Editing `{bot_name}`\n\n"
+        f"Please send me the updated Python file:",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    return GET_BOT_FILE
 
-async def edit_bot_receive_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receives updated bot code."""
+async def edit_bot_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Receives updated bot file and restarts the bot."""
+    await react_to_message(update)
+    document = update.message.document
+    if not document.file_name.endswith('.py'):
+        await update.message.reply_text(f"{EMOJI.CANCEL} That's not a Python file. Please send a `.py` file.")
+        return GET_BOT_FILE
+    
+    # Check file size
+    if document.file_size > MAX_BOT_FILE_SIZE:
+        await update.message.reply_text(f"{EMOJI.CANCEL} File is too large. Maximum size is {MAX_BOT_FILE_SIZE/1024/1024}MB.")
+        return GET_BOT_FILE
+    
     bot_name = context.user_data['edit_bot_name']
     
-    if update.message.document and update.message.document.file_name.endswith('.py'):
-        loading_msg = await send_loading_message(update)
-        
-        # Get the file content
-        bot_code = await download_file(update, update.message.document)
-        
-        if not bot_code:
-            await loading_msg.edit_text(f"{EMOJI.CANCEL} Failed to download the file. Please try again.")
-            return EDIT_GET_CODE
-        
-        # Save the updated code
-        bot_dir = running_bots[bot_name]['bot_dir']
-        bot_file_path = os.path.join(bot_dir, "bot.py")
-        
-        with open(bot_file_path, 'w') as f:
-            f.write(bot_code)
-        
-        await loading_msg.edit_text(
-            f"{EMOJI.SUCCESS} Bot code updated! Use 'Apply & Restart' to apply the changes.",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=get_edit_bot_keyboard(bot_name)
-        )
-        
-    else:
-        # If not a document, treat as text code
-        bot_code = update.message.text
-        
-        # Save the updated code
-        bot_dir = running_bots[bot_name]['bot_dir']
-        bot_file_path = os.path.join(bot_dir, "bot.py")
-        
-        with open(bot_file_path, 'w') as f:
-            f.write(bot_code)
-        
-        await update.message.reply_text(
-            f"{EMOJI.SUCCESS} Bot code updated! Use 'Apply & Restart' to apply the changes.",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=get_edit_bot_keyboard(bot_name)
-        )
+    loading_msg = await update.message.reply_text(f"{EMOJI.LOADING} Downloading updated bot file...")
     
-    return ConversationHandler.END
-
-async def edit_bot_receive_req(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receives updated requirements.txt."""
-    bot_name = context.user_data['edit_bot_name']
+    # Get the file content
+    bot_code = await download_file(update, document)
     
-    if update.message.document and update.message.document.file_name.endswith('.txt'):
-        loading_msg = await send_loading_message(update)
-        
-        # Get the file content
-        requirements_content = await download_file(update, update.message.document)
-        
-        if not requirements_content:
-            await loading_msg.edit_text(f"{EMOJI.CANCEL} Failed to download the file. Please try again.")
-            return EDIT_GET_REQ
-        
-        # Save the updated requirements
-        bot_dir = running_bots[bot_name]['bot_dir']
-        requirements_path = os.path.join(bot_dir, "requirements.txt")
-        
-        with open(requirements_path, 'w') as f:
-            f.write(requirements_content)
-        
-        await loading_msg.edit_text(
-            f"{EMOJI.SUCCESS} Requirements updated! Use 'Apply & Restart' to apply the changes.",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=get_edit_bot_keyboard(bot_name)
-        )
-        
-    else:
-        # If not a document, treat as text requirements
-        requirements_content = update.message.text
-        
-        # Save the updated requirements
-        bot_dir = running_bots[bot_name]['bot_dir']
-        requirements_path = os.path.join(bot_dir, "requirements.txt")
-        
-        with open(requirements_path, 'w') as f:
-            f.write(requirements_content)
-        
-        await update.message.reply_text(
-            f"{EMOJI.SUCCESS} Requirements updated! Use 'Apply & Restart' to apply the changes.",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=get_edit_bot_keyboard(bot_name)
-        )
+    if not bot_code:
+        await loading_msg.edit_text(f"{EMOJI.CANCEL} Failed to download the file. Please try again.")
+        return GET_BOT_FILE
     
-    return ConversationHandler.END
-
-async def edit_bot_receive_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receives updated bot token."""
-    bot_name = context.user_data['edit_bot_name']
-    bot_token = update.message.text.strip()
+    # Stop the bot first
+    stop_bot_process(bot_name)
     
-    # Save the updated token
-    running_bots[bot_name]['token'] = bot_token
+    # Get the existing token
+    bot_token = running_bots[bot_name]['token']
+    bot_dir = running_bots[bot_name]['bot_dir']
     
-    await update.message.reply_text(
-        f"{EMOJI.SUCCESS} Token updated! Use 'Apply & Restart' to apply the changes.",
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=get_edit_bot_keyboard(bot_name)
+    # Save the new code
+    bot_file_path = os.path.join(bot_dir, "bot.py")
+    with open(bot_file_path, 'w') as f:
+        f.write(bot_code)
+    
+    # Restart the bot
+    status_msg = await update.message.reply_text(f"{EMOJI.LOADING} Restarting bot with updated code...")
+    
+    process = subprocess.Popen(
+        ['python', 'bot.py'],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=bot_dir
     )
     
-    return ConversationHandler.END
-
-async def cancel_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Cancels and ends the edit conversation."""
-    bot_name = context.user_data.get('edit_bot_name', 'unknown')
+    running_bots[bot_name]['process'] = process
+    running_bots[bot_name]['start_time'] = datetime.now()
+    running_bots[bot_name]['logs'] = ""
     
-    await update.message.reply_text(
-        f"{EMOJI.CANCEL} Edit process cancelled for `{bot_name}`.",
+    await status_msg.edit_text(
+        f"{EMOJI.SUCCESS} Bot `{bot_name}` has been updated and restarted!",
         parse_mode=ParseMode.MARKDOWN,
-        reply_markup=get_edit_bot_keyboard(bot_name)
+        reply_markup=get_back_to_main_menu_keyboard()
     )
     
     context.user_data.clear()
@@ -1070,7 +887,7 @@ What would you like to do?
     await edit_or_reply_message(update, text, reply_markup=get_bot_actions_keyboard(bot_name))
 
 async def bot_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles actions for a bot (stop, restart, logs, delete, download, edit)."""
+    """Handles actions for a bot (stop, restart, logs, delete, download)."""
     query = update.callback_query
     await query.answer()
     
@@ -1079,6 +896,10 @@ async def bot_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     if action == 'delete_confirm':
         text = f"{EMOJI.QUESTION} Are you sure you want to delete `{bot_name}`? This will stop the bot and remove it from the list."
         await edit_or_reply_message(update, text, reply_markup=get_delete_confirmation_keyboard(bot_name))
+        return
+    
+    if action == 'edit':
+        await edit_bot_start(update, context)
         return
     
     if bot_name not in running_bots:
@@ -1124,6 +945,9 @@ async def bot_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             bot_dir = running_bots[bot_name]['bot_dir']
             
             # Create a temporary zip file
+            import zipfile
+            import io
+            
             zip_buffer = io.BytesIO()
             
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
@@ -1165,8 +989,7 @@ What would you like to do?
             logger.error(f"Error preparing bot files for download: {e}")
             await query.edit_message_text(f"{EMOJI.CANCEL} Failed to prepare files for download. Please try again.", parse_mode=ParseMode.MARKDOWN, reply_markup=get_bot_actions_keyboard(bot_name))
     
-    elif action == 'edit':
-        # Show the edit menu
+    elif action == 'status':
         info = running_bots[bot_name]
         update_bot_logs(bot_name)
         process_status = info['process'].poll()
@@ -1175,12 +998,12 @@ What would you like to do?
         uptime = datetime.now() - info['start_time'] if process_status is None else "N/A"
         
         text = f"""
-{EMOJI.GEAR} *Editing Bot: `{bot_name}`*
+{EMOJI.INFO} *Status of `{bot_name}`*
 Status: {status_emoji} *{'Running' if status_emoji == EMOJI.GREEN_CIRCLE else 'Stopped'}*
 Uptime: `{str(uptime).split('.')[0]}`
-What would you like to edit?
+Memory Usage: `Calculating...`
 """
-        await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_edit_bot_keyboard(bot_name))
+        await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_bot_actions_keyboard(bot_name))
     
     elif action == 'delete_final':
         bot_dir = running_bots[bot_name]['bot_dir']
@@ -1248,7 +1071,6 @@ async def settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 Maximum bots per user: *{MAX_BOTS_PER_USER}*
 Maximum bot file size: *{MAX_BOT_FILE_SIZE/1024/1024}MB*
 Allowed file types: *{', '.join(ALLOWED_FILE_TYPES)}*
-Maximum mirror file size: *{MIRROR_MAX_SIZE/1024/1024}MB*
 
 To change these settings, please edit the `users.json` file directly.
 """
@@ -1257,25 +1079,18 @@ To change these settings, please edit the `users.json` file directly.
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=get_back_to_main_menu_keyboard()
         )
-    
-    elif section == 'reactions':
-        settings_text = f"""
-{EMOJI.REACT} *Reaction Settings*\n\n
-The bot will automatically react to messages with random emojis.
-Current reaction emojis: {', '.join(REACTION_EMOJIS)}
 
-To change these settings, please edit the `REACTION_EMOJIS` list in the bot code.
-"""
-        await update.callback_query.edit_message_text(
-            settings_text,
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=get_back_to_main_menu_keyboard()
-        )
-
-async def mirror_start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Starts the mirror process from a button."""
+async def mirror_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Starts the file mirroring process."""
+    await react_to_message(update)
     await update.callback_query.answer()
-    await mirror_command(update, context)
+    await update.callback_query.edit_message_text(
+        f"{EMOJI.MIRROR} *File Mirroring*\n\n"
+        "Send me a file (up to 150MB) and I'll mirror it to a cloud service.\n\n"
+        "Note: Files are stored temporarily (up to 14 days).",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=get_back_to_main_menu_keyboard()
+    )
 
 # --- Main Function ---
 def main():
@@ -1302,18 +1117,15 @@ def main():
         allow_reentry=True
     )
     
-    # Conversation handler for the edit process
+    # Edit bot conversation handler
     edit_conv_handler = ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(edit_bot_start, pattern='^edit_bot:'),
-            CommandHandler('edit', edit_command)
+            CallbackQueryHandler(edit_bot_start, pattern='^bot_action:edit:')
         ],
         states={
-            EDIT_GET_CODE: [MessageHandler(filters.TEXT | filters.Document.PY, edit_bot_receive_code)],
-            EDIT_GET_REQ: [MessageHandler(filters.TEXT | filters.Document.TXT, edit_bot_receive_req)],
-            EDIT_GET_TOKEN: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_bot_receive_token)],
+            GET_BOT_FILE: [MessageHandler(filters.Document.PY, edit_bot_file)],
         },
-        fallbacks=[CommandHandler('cancel', cancel_edit)],
+        fallbacks=[CommandHandler('cancel', cancel_upload)],
         allow_reentry=True
     )
     
@@ -1328,11 +1140,11 @@ def main():
     application.add_handler(CommandHandler("restart", restart_command))
     application.add_handler(CommandHandler("stop", stop_command))
     application.add_handler(CommandHandler("logs", logs_command))
-    application.add_handler(CommandHandler("mirror", mirror_command))
     application.add_handler(CommandHandler("settings", settings_command))
+    application.add_handler(CommandHandler("mirror", mirror_file))
     
-    # Message handler for mirroring files
-    application.add_handler(MessageHandler(filters.Document.ALL & ~filters.COMMAND, mirror_file))
+    # Message handler for file mirroring
+    application.add_handler(MessageHandler(filters.Document.ALL, mirror_file))
     
     # Callback query handlers for menu navigation and actions
     application.add_handler(CallbackQueryHandler(main_menu_callback, pattern='^main_menu$'))
@@ -1345,10 +1157,10 @@ def main():
     application.add_handler(CallbackQueryHandler(delete_all_bots_final, pattern='^delete_all_final$'))
     application.add_handler(CallbackQueryHandler(settings_callback, pattern='^settings:'))
     application.add_handler(CallbackQueryHandler(settings_command, pattern='^settings$'))
-    application.add_handler(CallbackQueryHandler(mirror_start_callback, pattern='^mirror_start$'))
+    application.add_handler(CallbackQueryHandler(mirror_start, pattern='^mirror_start$'))
     
-    # Auto-reaction to all text messages
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, add_reaction))
+    # Add reaction to all messages
+    application.add_handler(MessageHandler(filters.ALL, react_to_message))
     
     # Log all errors
     application.add_error_handler(lambda update, context: logger.error(f"Update {update} caused error {context.error}"))
