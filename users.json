@@ -1,0 +1,8 @@
+{
+    "authorized_users": [5431714552, 6392830471],
+    "bot_settings": {
+        "max_bots_per_user": 5,
+        "max_bot_file_size": 10485760,
+        "allowed_file_types": [".py"]
+    }
+}
