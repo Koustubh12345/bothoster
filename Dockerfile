@@ -1,29 +1,28 @@
 FROM python:3.11-slim
 
-# Set working directory
+# Set working directory inside the container
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies needed for some Python packages
 RUN apt-get update && apt-get install -y \
-    gcc \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements file and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy the rest of the application code
 COPY . .
 
-# Create directories for data, bot files, and temp files with proper permissions
-RUN mkdir -p /app/data /app/data/bots /app/data/temp && chmod 755 /app/data /app/data/bots /app/data/temp
+# Create data directories with appropriate permissions for the bot to write to
+RUN mkdir -p /app/data/bots /app/data/mirror && chmod -R 755 /app/data
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
-ENV PYTHONPATH=/app
 
-# Expose port for web server (required by Render)
+# Expose the port the web server will run on (required by Render)
 EXPOSE 10000
 
-# Command to run the application
+# The command to run when the container starts
 CMD ["python", "app.py"]
