@@ -1,17 +1,22 @@
 import os
 import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import bot # Import your bot's logic from bot.py
+import requests
+import base64
+import json
 import mimetypes
-from http.server import HTTPServer, SimpleHTTPRequestHandler
-import bot  # Import your bot's logic from bot.py
 
 # --- Configuration ---
 PORT = int(os.environ.get("PORT", 10000))
 DATA_DIR = "data"
-MIRROR_DIR = os.path.join(DATA_DIR, "mirror")
+# PANTRY API key should be set as an environment variable
+PANTRY_API_KEY = os.environ.get("PANTRY_API_KEY", "1355fa66-95d4-40e0-9508-4d92a74531fe")
+PANTRY_URL = f"https://getpantry.cloud/apiv1/pantry/{PANTRY_API_KEY}"
 
-class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
+class CustomHTTPRequestHandler(BaseHTTPRequestHandler):
     """
-    Custom request handler to serve mirrored files and a health check endpoint.
+    Custom request handler to serve mirrored files via Pantry and a health check endpoint.
     """
     def do_GET(self):
         # Health check endpoint for Render
@@ -22,29 +27,44 @@ class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
             self.wfile.write(b'OK')
             return
 
-        # Serve files from the mirror directory
+        # Serve files proxied from Pantry
         if self.path.startswith('/mirror/'):
-            # Sanitize path to prevent directory traversal attacks
-            base_path = os.path.abspath(MIRROR_DIR)
-            requested_path = os.path.abspath(os.path.join(base_path, self.path.split('/mirror/', 1)[1]))
-
-            if not requested_path.startswith(base_path):
-                self.send_error(403, "Forbidden: Access denied.")
+            file_key = self.path.split('/mirror/', 1)[1]
+            if not file_key:
+                self.send_error(400, "Bad Request")
                 return
 
-            if os.path.isfile(requested_path):
-                try:
-                    with open(requested_path, 'rb') as f:
-                        self.send_response(200)
-                        content_type, _ = mimetypes.guess_type(requested_path)
-                        self.send_header('Content-type', content_type or 'application/octet-stream')
-                        self.send_header('Content-Length', str(os.path.getsize(requested_path)))
-                        self.end_headers()
-                        self.wfile.write(f.read())
-                except IOError:
-                    self.send_error(404, "File Not Found")
-            else:
-                self.send_error(404, "File Not Found")
+            try:
+                # Make a request to the Pantry API
+                response = requests.get(f"{PANTRY_URL}/basket/{file_key}")
+                
+                if response.status_code == 200:
+                    file_data = response.json()
+                    
+                    # Pantry stores files as Base64 encoded strings
+                    encoded_content = file_data.get('content', '')
+                    mime_type = file_data.get('mime_type', 'application/octet-stream')
+                    file_name = file_data.get('name', 'file')
+                    
+                    if not encoded_content:
+                        self.send_error(404, "File content is empty.")
+                        return
+
+                    decoded_content = base64.b64decode(encoded_content)
+                    
+                    self.send_response(200)
+                    self.send_header('Content-type', mime_type)
+                    self.send_header('Content-Length', str(len(decoded_content)))
+                    self.send_header('Content-Disposition', f'attachment; filename="{file_name}"')
+                    self.end_headers()
+                    self.wfile.write(decoded_content)
+                elif response.status_code == 404:
+                    self.send_error(404, "File Not Found in Pantry")
+                else:
+                    self.send_error(500, f"Pantry API error: {response.status_code}")
+            except Exception as e:
+                print(f"Error serving file from Pantry: {e}")
+                self.send_error(500, "Internal Server Error")
             return
 
         # Default response for the root path
@@ -66,8 +86,7 @@ def run_bot():
     bot.main()
 
 if __name__ == '__main__':
-    # Ensure all necessary data directories exist before starting
-    os.makedirs(MIRROR_DIR, exist_ok=True)
+    # We no longer need to create a local mirror directory
     os.makedirs(os.path.join(DATA_DIR, "bots"), exist_ok=True)
     
     # Start the web server in a background thread
@@ -77,4 +96,3 @@ if __name__ == '__main__':
     
     # Run the bot in the main thread
     run_bot()
-            
