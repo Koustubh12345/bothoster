@@ -1,4 +1,4 @@
-Import os
+import os
 import subprocess
 import logging
 import asyncio
@@ -420,7 +420,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     help_text = f"""
-{EMOJI.QUESTION} * TenSei BotHoster Pro Help* {EMOJI.QUESTION}
+{EMOJI.QUESTION} *BotHoster Pro Help* {EMOJI.QUESTION}
 This bot allows you to host other Telegram bots directly from this chat.
 {EMOJI.ROCKET} *Features:*
 - `{EMOJI.UPLOAD} Upload New Bot`: Start a conversation to upload a new bot.
@@ -722,9 +722,9 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     await query.answer()
     welcome_message = f"""
-{EMOJI.SPARKLES} *Welcome to TenSei BotHoster Pro!* {EMOJI.SPARKLES}
+{EMOJI.SPARKLES} *Welcome to BotHoster Pro!* {EMOJI.SPARKLES}
 I can host and manage your Python Telegram bots.
-{EMOJI.GEAR} Use the menu below to get started Bot By: @getthefckoutofheree.
+{EMOJI.GEAR} Use the menu below to get started.
 """
     await query.message.delete()
     await query.message.chat.send_photo(photo=START_IMAGE_URL, caption=welcome_message, parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_menu_keyboard())
@@ -847,7 +847,7 @@ async def settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     settings_text = f"""
-{EMOJI.GEAR} * TenSei BotHoster Pro Settings*
+{EMOJI.GEAR} *BotHoster Pro Settings*
 These settings are configured in the `users.json` file.
 
 {EMOJI.ROBOT} *Authorization*
