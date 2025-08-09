@@ -2,27 +2,31 @@ import os
 import sys
 import threading
 import time
-from flask import Flask, jsonify
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
-# Create Flask app
-app = Flask(__name__)
-
-@app.route('/health', methods=['GET'])
-def health_check():
-    return jsonify({"status": "OK"}), 200
-
-@app.route('/', methods=['GET'])
-def home():
-    return "Telegram Bot Hosting Service is running."
+class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/health':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'OK')
+        else:
+            self.send_response(200)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'Telegram Bot Hosting Service is running.')
 
 def run_web_server():
-    """Run the Flask web server."""
-    app.run(host='0.0.0.0', port=10000, threaded=True)
+    server_address = ('', 10000)
+    httpd = HTTPServer(server_address, SimpleHTTPRequestHandler)
+    print("Web server running on port 10000...")
+    httpd.serve_forever()
 
 def run_bot():
-    """Import and run the bot."""
-    import bot
-    bot.main()
+    # Import and run the bot
+    from bot import main  # Changed to import the main function directly
+    main()  # Call the main function
 
 if __name__ == '__main__':
     # Start the web server in a separate thread
