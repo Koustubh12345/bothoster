@@ -15,8 +15,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Create directories for data and bot files with proper permissions
-RUN mkdir -p /app/data /app/data/bots && chmod 755 /app/data /app/data/bots
+# Create directories for data, bot files, and temp files with proper permissions
+RUN mkdir -p /app/data /app/data/bots /app/data/temp && chmod 755 /app/data /app/data/bots /app/data/temp
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
