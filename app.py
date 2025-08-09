@@ -1,7 +1,7 @@
 import os
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
-import bot # Import your bot's logic from bot.py
+import bot 
 import requests
 import base64
 import json
