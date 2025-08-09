@@ -10,11 +10,8 @@ import shutil
 import zipfile
 import io
 import random
-import threading
 from datetime import datetime
 from typing import Union, Dict, Any, Optional
-from flask import Flask, request, send_file, jsonify
-from werkzeug.utils import secure_filename
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Document, InputFile
 from telegram.ext import (
     Application,
@@ -35,36 +32,6 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-
-# --- Flask App for File Handling ---
-app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 150 * 1024 * 1024  # 150MB max file size
-UPLOAD_FOLDER = 'data/temp'
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-# Ensure upload folder exists
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
-@app.route('/health', methods=['GET'])
-def health_check():
-    return jsonify({"status": "OK"}), 200
-
-@app.route('/upload', methods=['POST'])
-def upload_file():
-    if 'file' not in request.files:
-        return jsonify({"error": "No file part"}), 400
-    
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({"error": "No selected file"}), 400
-    
-    if file:
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(file_path)
-        return jsonify({"success": True, "file_path": file_path}), 200
-    
-    return jsonify({"error": "File upload failed"}), 500
 
 # --- Configuration ---
 # Load configuration from environment variable or use default
@@ -1311,17 +1278,8 @@ async def mirror_start_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await mirror_command(update, context)
 
 # --- Main Function ---
-def run_flask():
-    """Run the Flask app in a separate thread."""
-    app.run(host='0.0.0.0', port=10000, threaded=True)
-
 def main():
     """Run the bot."""
-    # Start Flask in a separate thread
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
-    
     # Create the application
     application = Application.builder().token(TOKEN).build()
     
