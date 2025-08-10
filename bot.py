@@ -168,7 +168,7 @@ class EMOJI:
     WRENCH = "\ud83d\udd27"
     MIRROR = "\ud83e\ude9e"
     STORAGE = "\ud83d\udcbe"
-    = "\ud83d\udcdd"
+    TEMPLATE = "\ud83d\udcdd" # This is the corrected line
     HEALTH = "\u2764\ufe0f"
     SEARCH = "\ud83d\udd0d"
     FILTER = "\ud83d\udd0e"
@@ -2441,3 +2441,11 @@ if name == "main":
 main()
 
 
+Traceback (most recent call last):
+  File "/app/app.py", line 5, in <module>
+    import bot  # Import the enhanced bot logic
+    ^^^^^^^^^^
+  File "/app/bot.py", line 171
+    = "\ud83d\udcdd"
+    ^
+SyntaxError: invalid syntax
