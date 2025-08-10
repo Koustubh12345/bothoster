@@ -1,8 +1,12 @@
+
 {
     "authorized_users": [5431714552, 6392830471],
     "bot_settings": {
         "max_bots_per_user": 5,
         "max_bot_file_size": 10485760,
-        "allowed_file_types": [".py"]
+        "max_mirror_file_size": 104857600,
+        "allowed_file_types": [".py"],
+        "auto_restart_bots": true,
+        "log_retention_days": 7
     }
 }
