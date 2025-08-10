@@ -1,4 +1,3 @@
-
 import os
 import subprocess
 import logging
@@ -15,7 +14,6 @@ import fcntl
 import psutil
 from datetime import datetime, timedelta
 from typing import Union, Dict, Any, Optional, List, Tuple
-
 from telegram import (
     Update,
     InlineKeyboardButton,
@@ -46,9 +44,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --- Configuration ---
-TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8109732136:AAGoVJURJtbUJuqcN84ciC5We2Ni3W4OMYM")
-RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL") 
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+if not TOKEN:
+    logger.error("TELEGRAM_BOT_TOKEN environment variable not set!")
+    exit(1)
 
+RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://your-app-name.onrender.com")
 USERS_FILE = "data/users.json"
 DATA_DIR = "data"
 BOTS_DIR = "data/bots"
@@ -70,7 +71,7 @@ try:
         AUTHORIZED_USERS = users_config.get("authorized_users", [5431714552, 6392830471])
         MAX_BOTS_PER_USER = users_config.get("bot_settings", {}).get("max_bots_per_user", 5)
         MAX_BOT_FILE_SIZE = users_config.get("bot_settings", {}).get("max_bot_file_size", 10485760)  # 10MB
-        MAX_MIRROR_FILE_SIZE = users_config.get("bot_settings", {}).get("max_mirror_file_size", 104857600)  # 100MB (increased from 20MB)
+        MAX_MIRROR_FILE_SIZE = users_config.get("bot_settings", {}).get("max_mirror_file_size", 104857600)  # 100MB
         ALLOWED_FILE_TYPES = users_config.get("bot_settings", {}).get("allowed_file_types", [".py"])
         AUTO_RESTART_BOTS = users_config.get("bot_settings", {}).get("auto_restart_bots", True)
         LOG_RETENTION_DAYS = users_config.get("bot_settings", {}).get("log_retention_days", 7)
@@ -78,7 +79,7 @@ except (FileNotFoundError, json.JSONDecodeError):
     AUTHORIZED_USERS = [5431714552, 6392830471]
     MAX_BOTS_PER_USER = 5
     MAX_BOT_FILE_SIZE = 10485760  # 10MB
-    MAX_MIRROR_FILE_SIZE = 104857600  # 100MB (increased from 20MB)
+    MAX_MIRROR_FILE_SIZE = 104857600  # 100MB
     ALLOWED_FILE_TYPES = [".py"]
     AUTO_RESTART_BOTS = True
     LOG_RETENTION_DAYS = 7
@@ -177,7 +178,6 @@ class EMOJI:
     STOP_ALL = "\u23f9\ufe0f"
     CLEAN = "\ud83e\uddf9"
     STAR = "\u2b50"
-    TEMPLATE = "\ud83d\udccb"
 
 # --- Keyboard Generation Functions ---
 def get_main_menu_keyboard():
@@ -230,7 +230,6 @@ def get_bot_actions_keyboard(bot_name: str):
         first_row.insert(0, InlineKeyboardButton(f"{EMOJI.STOP} Stop", callback_data=f'bot_action:stop:{bot_name}'))
     else:
         first_row.insert(0, InlineKeyboardButton(f"{EMOJI.PLAY_ALL} Start", callback_data=f'bot_action:start:{bot_name}'))
-
     return InlineKeyboardMarkup([
         first_row,
         [
@@ -293,7 +292,6 @@ async def edit_or_reply_message(update: Update, text: str, reply_markup: Optiona
             # If the original message has a photo and the new one doesn't, or vice-versa, we must delete and send a new one.
             has_photo_orig = bool(query.message.photo or query.message.animation)
             has_photo_new = bool(photo_url)
-
             if has_photo_orig != has_photo_new:
                 await query.message.delete()
                 if has_photo_new:
@@ -304,7 +302,6 @@ async def edit_or_reply_message(update: Update, text: str, reply_markup: Optiona
                 else:
                     await query.message.chat.send_message(text, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup, disable_web_page_preview=True)
                 return
-
             # If message type is consistent, we can edit.
             if photo_url:
                 if use_animation and query.message.animation:
@@ -369,7 +366,7 @@ def start_bot_subprocess(bot_name: str, bot_token: str, bot_code: str, requireme
         bot_dir = create_bot_directory(bot_name)
         bot_file_path = os.path.join(bot_dir, "bot.py")
         log_file_path = create_log_file(bot_name)
-
+        
         # Ensure the bot code has the token set
         if "TOKEN = " in bot_code:
             modified_code = bot_code.replace("TOKEN = \"\"", f"TOKEN = \"{bot_token}\"")
@@ -377,8 +374,7 @@ def start_bot_subprocess(bot_name: str, bot_token: str, bot_code: str, requireme
             modified_code = modified_code.replace("TOKEN=os.getenv(\"BOT_TOKEN\")", f"TOKEN = \"{bot_token}\"")
         else:
             # If no TOKEN variable is found, add it at the top of the file
-            modified_code = f"TOKEN = \"{bot_token}\"\
-{bot_code}"
+            modified_code = f"TOKEN = \"{bot_token}\"\n{bot_code}"
         
         with open(bot_file_path, 'w', encoding='utf-8') as f:
             f.write(modified_code)
@@ -390,22 +386,19 @@ def start_bot_subprocess(bot_name: str, bot_token: str, bot_code: str, requireme
             
             logger.info(f"Installing requirements for {bot_name}...")
             with open(log_file_path, 'a') as log_file:
-                log_file.write(f"--- Installing requirements at {datetime.now().isoformat()} ---\
-")
+                log_file.write(f"--- Installing requirements at {datetime.now().isoformat()} ---\n")
                 pip_process = subprocess.run(
                     ['pip', 'install', '-r', requirements_path],
                     capture_output=True, text=True, cwd=bot_dir
                 )
                 log_file.write(pip_process.stdout)
                 if pip_process.returncode != 0:
-                    log_file.write(f"ERROR: {pip_process.stderr}\
-")
+                    log_file.write(f"ERROR: {pip_process.stderr}\n")
                     logger.error(f"Failed to install requirements for {bot_name}. Stderr: {pip_process.stderr}")
         
         # Open log file for the process
         log_file = open(log_file_path, 'a')
-        log_file.write(f"--- Bot started at {datetime.now().isoformat()} ---\
-")
+        log_file.write(f"--- Bot started at {datetime.now().isoformat()} ---\n")
         
         process = subprocess.Popen(
             ['python3', 'bot.py'],
@@ -458,15 +451,13 @@ def stop_bot_process(bot_name: str) -> bool:
                 
                 # Log the termination
                 if log_file and not log_file.closed:
-                    log_file.write(f"--- Bot stopped at {datetime.now().isoformat()} ---\
-")
+                    log_file.write(f"--- Bot stopped at {datetime.now().isoformat()} ---\n")
                     log_file.flush()
             except subprocess.TimeoutExpired:
                 logger.warning(f"Process group for {bot_name} did not terminate in time. Killing...")
                 os.killpg(os.getpgid(process.pid), signal.SIGKILL)
                 if log_file and not log_file.closed:
-                    log_file.write(f"--- Bot forcefully killed at {datetime.now().isoformat()} ---\
-")
+                    log_file.write(f"--- Bot forcefully killed at {datetime.now().isoformat()} ---\n")
                     log_file.flush()
             except ProcessLookupError:
                 logger.info(f"Process for bot {bot_name} already terminated.")
@@ -582,8 +573,7 @@ def get_bot_logs(bot_name: str, max_lines: int = 100) -> str:
         # Limit to the last max_lines
         log_lines = logs.splitlines()
         if len(log_lines) > max_lines:
-            return "\
-".join(log_lines[-max_lines:])
+            return "\n".join(log_lines[-max_lines:])
         return logs
     
     # If the bot is not in running_bots, try to find its log files
@@ -597,8 +587,7 @@ def get_bot_logs(bot_name: str, max_lines: int = 100) -> str:
                     logs = f.read()
                     log_lines = logs.splitlines()
                     if len(log_lines) > max_lines:
-                        return "\
-".join(log_lines[-max_lines:])
+                        return "\n".join(log_lines[-max_lines:])
                     return logs
             except Exception as e:
                 logger.error(f"Error reading log file for {bot_name}: {e}")
@@ -739,27 +728,27 @@ logging.basicConfig(
 TOKEN = ""
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when the command /start is issued."""
+    \"\"\"Send a message when the command /start is issued.\"\"\"
     await update.message.reply_text('Hi! I am an Echo Bot. I will echo back any message you send me.')
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when the command /help is issued."""
+    \"\"\"Send a message when the command /help is issued.\"\"\"
     await update.message.reply_text('Send me any message and I will echo it back to you!')
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Echo the user message."""
+    \"\"\"Echo the user message.\"\"\"
     await update.message.reply_text(update.message.text)
 
 def main() -> None:
-    """Start the bot."""
+    \"\"\"Start the bot.\"\"\"
     # Create the Application
     application = Application.builder().token(TOKEN).build()
-
+    
     # Add handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
-
+    
     # Run the bot until the user presses Ctrl-C
     application.run_polling()
 
@@ -786,13 +775,13 @@ logging.basicConfig(
 TOKEN = ""
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when the command /start is issued."""
+    \"\"\"Send a message when the command /start is issued.\"\"\"
     await update.message.reply_text(
         'Welcome to the Poll Bot! Use /poll to create a new poll.'
     )
 
 async def poll_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Sends a predefined poll"""
+    \"\"\"Sends a predefined poll\"\"\"
     questions = ["Good", "Really good", "Fantastic", "Great"]
     message = await context.bot.send_poll(
         update.effective_chat.id,
@@ -814,7 +803,7 @@ async def poll_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     context.bot_data.update(payload)
 
 async def receive_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Summarize a users poll vote"""
+    \"\"\"Summarize a users poll vote\"\"\"
     answer = update.poll_answer
     poll_id = answer.poll_id
     
@@ -846,14 +835,14 @@ async def receive_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
 
 def main() -> None:
-    """Start the bot."""
+    \"\"\"Start the bot.\"\"\"
     # Create the Application
     application = Application.builder().token(TOKEN).build()
-
+    
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("poll", poll_command))
     application.add_handler(PollAnswerHandler(receive_poll_answer))
-
+    
     # Run the bot until the user presses Ctrl-C
     application.run_polling()
 
@@ -880,17 +869,17 @@ logging.basicConfig(
 TOKEN = ""
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when the command /start is issued."""
+    \"\"\"Send a message when the command /start is issued.\"\"\"
     await update.message.reply_text(
         'Hi! I am an Inline Bot. Type @YourBotUsername in any chat followed by a query to use me.'
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when the command /help is issued."""
+    \"\"\"Send a message when the command /help is issued.\"\"\"
     await update.message.reply_text('Type @YourBotUsername followed by your query in any chat.')
 
 async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle the inline query."""
+    \"\"\"Handle the inline query.\"\"\"
     query = update.inline_query.query
     
     if not query:
@@ -920,15 +909,15 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.inline_query.answer(results)
 
 def main() -> None:
-    """Start the bot."""
+    \"\"\"Start the bot.\"\"\"
     # Create the Application
     application = Application.builder().token(TOKEN).build()
-
+    
     # Add handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(InlineQueryHandler(inline_query))
-
+    
     # Run the bot until the user presses Ctrl-C
     application.run_polling()
 
@@ -959,26 +948,26 @@ TOKEN = ""
 ADMIN_USER_IDS = [123456789]  # Replace with your Telegram user ID
 
 def is_admin(user_id):
-    """Check if the user is an admin."""
+    \"\"\"Check if the user is an admin.\"\"\"
     return user_id in ADMIN_USER_IDS
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when the command /start is issued."""
+    \"\"\"Send a message when the command /start is issued.\"\"\"
     await update.message.reply_text(
         'Welcome to the Admin Bot! Use /help to see available commands.'
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when the command /help is issued."""
+    \"\"\"Send a message when the command /help is issued.\"\"\"
     user_id = update.effective_user.id
     
-    basic_commands = """
+    basic_commands = \"\"\"
 *Basic Commands:*
 /start - Start the bot
 /help - Show this help message
-"""
+\"\"\"
     
-    admin_commands = """
+    admin_commands = \"\"\"
 *Admin Commands:*
 /ban <user_id> - Ban a user from the group
 /unban <user_id> - Unban a user
@@ -987,7 +976,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 /kick <user_id> - Kick a user from the group
 /pin - Pin the replied message
 /unpin - Unpin the most recent pinned message
-"""
+\"\"\"
     
     if is_admin(user_id):
         await update.message.reply_text(basic_commands + admin_commands, parse_mode=ParseMode.MARKDOWN)
@@ -995,7 +984,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text(basic_commands, parse_mode=ParseMode.MARKDOWN)
 
 async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Ban a user from the group."""
+    \"\"\"Ban a user from the group.\"\"\"
     user_id = update.effective_user.id
     
     if not is_admin(user_id):
@@ -1016,7 +1005,7 @@ async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text(f"Failed to ban user: {e}")
 
 async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Unban a user from the group."""
+    \"\"\"Unban a user from the group.\"\"\"
     user_id = update.effective_user.id
     
     if not is_admin(user_id):
@@ -1037,7 +1026,7 @@ async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(f"Failed to unban user: {e}")
 
 async def mute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Mute a user in the group."""
+    \"\"\"Mute a user in the group.\"\"\"
     user_id = update.effective_user.id
     
     if not is_admin(user_id):
@@ -1066,7 +1055,7 @@ async def mute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text(f"Failed to mute user: {e}")
 
 async def unmute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Unmute a user in the group."""
+    \"\"\"Unmute a user in the group.\"\"\"
     user_id = update.effective_user.id
     
     if not is_admin(user_id):
@@ -1097,7 +1086,7 @@ async def unmute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(f"Failed to unmute user: {e}")
 
 async def kick_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Kick a user from the group."""
+    \"\"\"Kick a user from the group.\"\"\"
     user_id = update.effective_user.id
     
     if not is_admin(user_id):
@@ -1119,7 +1108,7 @@ async def kick_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text(f"Failed to kick user: {e}")
 
 async def pin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Pin the replied message."""
+    \"\"\"Pin the replied message.\"\"\"
     user_id = update.effective_user.id
     
     if not is_admin(user_id):
@@ -1139,7 +1128,7 @@ async def pin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text("Please reply to a message to pin it.")
 
 async def unpin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Unpin the most recent pinned message."""
+    \"\"\"Unpin the most recent pinned message.\"\"\"
     user_id = update.effective_user.id
     
     if not is_admin(user_id):
@@ -1155,10 +1144,10 @@ async def unpin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(f"Failed to unpin message: {e}")
 
 def main() -> None:
-    """Start the bot."""
+    \"\"\"Start the bot.\"\"\"
     # Create the Application
     application = Application.builder().token(TOKEN).build()
-
+    
     # Add handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
@@ -1169,7 +1158,7 @@ def main() -> None:
     application.add_handler(CommandHandler("kick", kick_command))
     application.add_handler(CommandHandler("pin", pin_command))
     application.add_handler(CommandHandler("unpin", unpin_command))
-
+    
     # Run the bot until the user presses Ctrl-C
     application.run_polling()
 
@@ -1202,14 +1191,14 @@ FILES_DIR = "files"
 os.makedirs(FILES_DIR, exist_ok=True)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when the command /start is issued."""
+    \"\"\"Send a message when the command /start is issued.\"\"\"
     await update.message.reply_text(
         'Welcome to the File Storage Bot! Send me any file to store it, or use /list to see your stored files.'
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when the command /help is issued."""
-    help_text = """
+    \"\"\"Send a message when the command /help is issued.\"\"\"
+    help_text = \"\"\"
 *File Storage Bot Commands:*
 /start - Start the bot
 /help - Show this help message
@@ -1221,11 +1210,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 2. Use /list to see all your files
 3. Click on a file name to download it
 4. Use the delete button to remove a file
-"""
+\"\"\"
     await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
 
 async def store_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Store a file sent by the user."""
+    \"\"\"Store a file sent by the user.\"\"\"
     user_id = update.effective_user.id
     user_dir = os.path.join(FILES_DIR, str(user_id))
     os.makedirs(user_dir, exist_ok=True)
@@ -1252,8 +1241,7 @@ async def store_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await new_file.download_to_drive(file_path)
         
         await update.message.reply_text(
-            f"File *{file_name}* has been stored successfully!\
-"
+            f"File *{file_name}* has been stored successfully!\\n"
             f"Use /list to see all your files.",
             parse_mode=ParseMode.MARKDOWN
         )
@@ -1261,7 +1249,7 @@ async def store_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text("Please send a file to store.")
 
 async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """List all files stored by the user."""
+    \"\"\"List all files stored by the user.\"\"\"
     user_id = update.effective_user.id
     user_dir = os.path.join(FILES_DIR, str(user_id))
     
@@ -1274,15 +1262,15 @@ async def list_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     
     for file_name in files:
         keyboard.append([
-            InlineKeyboardButton(f"\ud83d\udcc4 {file_name}", callback_data=f"get_file:{file_name}"),
-            InlineKeyboardButton("\ud83d\uddd1\ufe0f", callback_data=f"delete_file:{file_name}")
+            InlineKeyboardButton(f"📄 {file_name}", callback_data=f"get_file:{file_name}"),
+            InlineKeyboardButton("🗑️", callback_data=f"delete_file:{file_name}")
         ])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Your stored files:", reply_markup=reply_markup)
 
 async def search_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Search for files by name."""
+    \"\"\"Search for files by name.\"\"\"
     if not context.args:
         await update.message.reply_text("Please provide a search query. Example: /search document")
         return
@@ -1305,15 +1293,15 @@ async def search_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     keyboard = []
     for file_name in matching_files:
         keyboard.append([
-            InlineKeyboardButton(f"\ud83d\udcc4 {file_name}", callback_data=f"get_file:{file_name}"),
-            InlineKeyboardButton("\ud83d\uddd1\ufe0f", callback_data=f"delete_file:{file_name}")
+            InlineKeyboardButton(f"📄 {file_name}", callback_data=f"get_file:{file_name}"),
+            InlineKeyboardButton("🗑️", callback_data=f"delete_file:{file_name}")
         ])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(f"Files matching '{query}':", reply_markup=reply_markup)
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle button callbacks."""
+    \"\"\"Handle button callbacks.\"\"\"
     query = update.callback_query
     await query.answer()
     
@@ -1344,10 +1332,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await query.message.reply_text(f"File {file_name} not found.")
 
 def main() -> None:
-    """Start the bot."""
+    \"\"\"Start the bot.\"\"\"
     # Create the Application
     application = Application.builder().token(TOKEN).build()
-
+    
     # Add handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
@@ -1358,7 +1346,7 @@ def main() -> None:
         filters.ATTACHMENT | filters.Document.ALL | filters.PHOTO | filters.VIDEO | filters.AUDIO | filters.VOICE,
         store_file
     ))
-
+    
     # Run the bot until the user presses Ctrl-C
     application.run_polling()
 
@@ -1412,9 +1400,9 @@ def authorized_only(func):
         if user_id not in AUTHORIZED_USERS:
             logger.warning(f"Unauthorized access attempt by user {user_id}.")
             if update.message:
-                await update.message.reply_text("\u26d4 You are not authorized to use this bot.")
+                await update.message.reply_text("🛡️ You are not authorized to use this bot.")
             elif update.callback_query:
-                await update.callback_query.answer("\u26d4 You are not authorized.", show_alert=True)
+                await update.callback_query.answer("🛡️ You are not authorized.", show_alert=True)
             return
         return await func(update, context, *args, **kwargs)
     return wrapped
@@ -1481,12 +1469,11 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mirror_dir_size = get_dir_size(MIRROR_DIR)
     logs_dir_size = get_dir_size(LOGS_DIR)
     total, used, free = shutil.disk_usage("/")
-
+    
     stats_text = f"""
 {EMOJI.BAR_CHART} *Hosting Statistics*
 {EMOJI.ROBOT} Total Bots Managed: *{total_bots}*
 {EMOJI.GREEN_CIRCLE} Bots Running: *{running_count}*
-
 {EMOJI.STORAGE} *Server Storage*
 {EMOJI.SNAKE} Bots Folder Size: `{format_bytes(bots_dir_size)}`
 {EMOJI.MIRROR} Mirror Folder Size: `{format_bytes(mirror_dir_size)}`
@@ -1508,20 +1495,16 @@ async def system_health_command(update: Update, context: ContextTypes.DEFAULT_TY
     
     health_text = f"""
 {EMOJI.HEALTH} *System Health*
-
 {EMOJI.BAR_CHART} *CPU Usage:* `{health['cpu_percent']}%`
 {EMOJI.STORAGE} *Memory:* `{health['memory_used']} / {health['memory_total']} ({health['memory_percent']}%)`
 {EMOJI.STORAGE} *Disk:* `{health['disk_used']} / {health['disk_total']} ({health['disk_percent']}%)`
 {EMOJI.ROCKET} *System Uptime:* `{health['boot_time']}`
-
 {EMOJI.ROBOT} *Running Bots:* `{sum(1 for bot in running_bots.values() if bot['process'].poll() is None)}`
 """
     
     # Add info about top resource-consuming bots
     if running_bots:
-        health_text += "\
-*Top Resource-Using Bots:*\
-"
+        health_text += "\n*Top Resource-Using Bots:*\n"
         
         # Get resource usage for all running bots
         bot_resources = []
@@ -1539,8 +1522,7 @@ async def system_health_command(update: Update, context: ContextTypes.DEFAULT_TY
         if bot_resources:
             bot_resources.sort(key=lambda x: x[1], reverse=True)
             for i, (bot_name, cpu, memory) in enumerate(bot_resources[:3]):
-                health_text += f"- `{bot_name}`: CPU `{cpu:.1f}%`, Memory `{format_bytes(memory)}`\
-"
+                health_text += f"- `{bot_name}`: CPU `{cpu:.1f}%`, Memory `{format_bytes(memory)}`\n"
     
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton(f"{EMOJI.BACK} Back to Stats", callback_data='stats')]
@@ -1578,9 +1560,7 @@ async def list_bots_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ])
     
     keyboard.append([InlineKeyboardButton(f"{EMOJI.BACK} Main Menu", callback_data='main_menu')])
-    await edit_or_reply_message(update, f"{EMOJI.CLIPBOARD} *Your Bots*\
-\
-Select a bot to manage:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await edit_or_reply_message(update, f"{EMOJI.CLIPBOARD} *Your Bots*\n\nSelect a bot to manage:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 @authorized_only
 async def start_all_bots_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1601,8 +1581,7 @@ async def start_all_bots_command(update: Update, context: ContextTypes.DEFAULT_T
     
     result_text = f"{EMOJI.SUCCESS} Started {started_count} bots."
     if failed_count > 0:
-        result_text += f"\
-{EMOJI.WARNING} Failed to start {failed_count} bots."
+        result_text += f"\n{EMOJI.WARNING} Failed to start {failed_count} bots."
     
     await loading_msg.edit_caption(result_text, reply_markup=get_main_menu_keyboard())
 
@@ -1632,9 +1611,7 @@ async def clean_logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     cleaned_count = clean_old_logs()
     
     await loading_msg.edit_caption(
-        f"{EMOJI.SUCCESS} Cleaned {cleaned_count} old log files.\
-\
-"
+        f"{EMOJI.SUCCESS} Cleaned {cleaned_count} old log files.\n\n"
         f"Log retention policy: {LOG_RETENTION_DAYS} days",
         reply_markup=get_stats_keyboard()
     )
@@ -1648,7 +1625,7 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     """Starts the bot upload conversation."""
     query = update.callback_query
     await query.answer()
-
+    
     user_bots_count = len(running_bots)
     if user_bots_count >= MAX_BOTS_PER_USER:
         await query.message.reply_text(f"{EMOJI.WARNING} You have reached the maximum of *{MAX_BOTS_PER_USER}* bots.", reply_markup=get_back_to_main_menu_keyboard())
@@ -1657,9 +1634,7 @@ async def upload_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     # Delete old message and send a new one to prevent edit error
     await query.message.delete()
     await query.message.chat.send_message(
-        f"{EMOJI.ROBOT} Let's upload a new bot!\
-\
-First, what do you want to name it? (e.g., `MyAwesomeBot`).",
+        f"{EMOJI.ROBOT} Let's upload a new bot!\n\nFirst, what do you want to name it? (e.g., `MyAwesomeBot`).",
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=get_cancel_keyboard()
     )
@@ -1670,14 +1645,13 @@ async def ask_bot_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     if not bot_name or not bot_name.replace('_', '').isalnum():
         await update.message.reply_text(f"{EMOJI.CANCEL} Invalid name. Please use only letters, numbers, and underscores. Try again.", reply_markup=get_cancel_keyboard())
         return ASK_BOT_NAME
+        
     if bot_name in running_bots:
         await update.message.reply_text(f"{EMOJI.CANCEL} A bot with this name already exists. Please choose another name.", reply_markup=get_cancel_keyboard())
         return ASK_BOT_NAME
         
     context.user_data['bot_name'] = bot_name
-    await update.message.reply_text(f"{EMOJI.SUCCESS} Great! Bot will be named `{bot_name}`.\
-\
-{EMOJI.SNAKE} Now, please send your Python file (e.g., `bot.py`).", parse_mode=ParseMode.MARKDOWN, reply_markup=get_cancel_keyboard())
+    await update.message.reply_text(f"{EMOJI.SUCCESS} Great! Bot will be named `{bot_name}`.\n\n{EMOJI.SNAKE} Now, please send your Python file (e.g., `bot.py`).", parse_mode=ParseMode.MARKDOWN, reply_markup=get_cancel_keyboard())
     return GET_BOT_FILE
 
 async def receive_bot_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1685,10 +1659,11 @@ async def receive_bot_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if not document or not any(document.file_name.lower().endswith(ft) for ft in ALLOWED_FILE_TYPES):
         await update.message.reply_text(f"{EMOJI.CANCEL} Invalid file type. Please send a file with one of the allowed extensions: {', '.join(ALLOWED_FILE_TYPES)}.", reply_markup=get_cancel_keyboard())
         return GET_BOT_FILE
+        
     if document.file_size > MAX_BOT_FILE_SIZE:
         await update.message.reply_text(f"{EMOJI.CANCEL} File is too large. Maximum size is {MAX_BOT_FILE_SIZE/1024/1024:.2f}MB.", reply_markup=get_cancel_keyboard())
         return GET_BOT_FILE
-
+        
     loading_msg = await send_loading_animation(context, update.effective_chat.id, f"{EMOJI.LOADING} Downloading your bot file...")
     
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -1696,14 +1671,12 @@ async def receive_bot_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         if not await download_file(context.bot, document.file_id, temp_file_path):
             await loading_msg.edit_caption(f"{EMOJI.CANCEL} Failed to download the file. Please try again.", reply_markup=get_cancel_keyboard())
             return GET_BOT_FILE
-
+            
         with open(temp_file_path, 'r', encoding='utf-8') as f:
             context.user_data['bot_code'] = f.read()
-
+    
     bot_name = context.user_data['bot_name']
-    await loading_msg.edit_caption(f"{EMOJI.SUCCESS} Bot file received!\
-\
-{EMOJI.KEY} Now, please send me the Telegram token for `{bot_name}`.", parse_mode=ParseMode.MARKDOWN, reply_markup=get_cancel_keyboard())
+    await loading_msg.edit_caption(f"{EMOJI.SUCCESS} Bot file received!\n\n{EMOJI.KEY} Now, please send me the Telegram token for `{bot_name}`.", parse_mode=ParseMode.MARKDOWN, reply_markup=get_cancel_keyboard())
     return GET_TOKEN
 
 async def receive_token_and_ask_requirements(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1712,16 +1685,14 @@ async def receive_token_and_ask_requirements(update: Update, context: ContextTyp
         [InlineKeyboardButton(f"{EMOJI.PACKAGE} Yes, upload requirements.txt", callback_data='has_requirements')],
         [InlineKeyboardButton(f"{EMOJI.ROCKET} No, run without it", callback_data='no_requirements')]
     ])
-    await update.message.reply_text(f"{EMOJI.SUCCESS} Token received!\
-\
-Does your bot have any external Python package dependencies (a `requirements.txt` file)?", reply_markup=keyboard)
+    await update.message.reply_text(f"{EMOJI.SUCCESS} Token received!\n\nDoes your bot have any external Python package dependencies (a `requirements.txt` file)?", reply_markup=keyboard)
     return GET_REQUIREMENTS
 
 async def handle_requirements_decision(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
     decision = query.data
-
+    
     if decision == 'has_requirements':
         await query.edit_message_text(f"{EMOJI.PACKAGE} Please send me your `requirements.txt` file.", parse_mode=ParseMode.MARKDOWN, reply_markup=get_cancel_keyboard())
         return GET_REQUIREMENTS
@@ -1735,9 +1706,9 @@ async def receive_requirements_file(update: Update, context: ContextTypes.DEFAUL
     if not document or not document.file_name.lower().endswith('.txt'):
         await update.message.reply_text(f"{EMOJI.CANCEL} That doesn't look like a `requirements.txt` file. Please send a `.txt` file.", reply_markup=get_cancel_keyboard())
         return GET_REQUIREMENTS
-
+        
     loading_msg = await send_loading_animation(context, update.effective_chat.id, f"{EMOJI.LOADING} Downloading requirements file...")
-
+    
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_file_path = os.path.join(temp_dir, document.file_name)
         if not await download_file(context.bot, document.file_id, temp_file_path):
@@ -1746,7 +1717,7 @@ async def receive_requirements_file(update: Update, context: ContextTypes.DEFAUL
         
         with open(temp_file_path, 'r', encoding='utf-8') as f:
             context.user_data['requirements_content'] = f.read()
-
+    
     await loading_msg.delete()
     return await finalize_and_run_bot(update, context)
 
@@ -1787,7 +1758,6 @@ async def cancel_operation(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     else:
         await update.message.reply_text(message_text)
         await start_command(update, context)
-
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -1800,9 +1770,7 @@ async def template_list_command(update: Update, context: ContextTypes.DEFAULT_TY
     # Create template files if they don't exist
     create_bot_template_files()
     
-    template_text = f"{EMOJI.TEMPLATE} *Bot Templates*\
-\
-Choose a template to create a new bot quickly:"
+    template_text = f"{EMOJI.TEMPLATE} *Bot Templates*\n\nChoose a template to create a new bot quickly:"
     await edit_or_reply_message(update, template_text, get_template_list_keyboard())
 
 @authorized_only
@@ -1829,619 +1797,603 @@ async def select_template_command(update: Update, context: ContextTypes.DEFAULT_
     
     template_text = f"""
 {EMOJI.TEMPLATE} *{template_info['name']}*
-
 {template_info['description']}
 
 *Code Preview:*
 ```python
-{template_preview}
-```
-"""
-    await edit_or_reply_message(update, template_text, get_template_action_keyboard(template_id))
+{template_preview"""
+await edit_or_reply_message(update, template_text, get_template_action_keyboard(template_id))
 
 @authorized_only
 async def use_template_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    template_id = query.data.split(':', 1)[1]
-    if template_id not in BOT_TEMPLATES:
-        await edit_or_reply_message(update, f"{EMOJI.CANCEL} Template not found.", get_template_list_keyboard())
-        return
-    
-    template_info = BOT_TEMPLATES[template_id]
-    template_path = os.path.join(os.getcwd(), template_info['file'])
-    
-    if not os.path.exists(template_path):
-        await edit_or_reply_message(update, f"{EMOJI.CANCEL} Template file not found. Please try again later.", get_template_list_keyboard())
-        return
-    
-    with open(template_path, 'r') as f:
-        template_code = f.read()
-    
-    # Store the template code in user_data
-    context.user_data['bot_code'] = template_code
-    
-    # Continue with the bot creation flow
-    user_bots_count = len(running_bots)
-    if user_bots_count >= MAX_BOTS_PER_USER:
-        await edit_or_reply_message(update, f"{EMOJI.WARNING} You have reached the maximum of *{MAX_BOTS_PER_USER}* bots.", get_back_to_main_menu_keyboard())
-        return
-    
-    # Delete old message and send a new one
-    await query.message.delete()
-    await query.message.chat.send_message(
-        f"{EMOJI.ROBOT} Let's create a new bot using the *{template_info['name']}* template!\
-\
-"
-        f"First, what do you want to name it? (e.g., `My{template_info['name'].replace(' ', '')}`).",
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=get_cancel_keyboard()
-    )
-    return ASK_BOT_NAME
+query = update.callback_query
+await query.answer()
 
-# --- Mirror File Conversation & Management ---
+template_id = query.data.split(':', 1)[1]
+if template_id not in BOT_TEMPLATES:
+await edit_or_reply_message(update, f"{EMOJI.CANCEL} Template not found.", get_template_list_keyboard())
+return
+
+template_info = BOT_TEMPLATES[template_id]
+template_path = os.path.join(os.getcwd(), template_info['file'])
+
+if not os.path.exists(template_path):
+await edit_or_reply_message(update, f"{EMOJI.CANCEL} Template file not found. Please try again later.", get_template_list_keyboard())
+return
+
+with open(template_path, 'r') as f:
+template_code = f.read()
+
+# Store the template code in user_data
+context.user_data['bot_code'] = template_code
+
+# Continue with the bot creation flow
+user_bots_count = len(running_bots)
+if user_bots_count >= MAX_BOTS_PER_USER:
+await edit_or_reply_message(update, f"{EMOJI.WARNING} You have reached the maximum of *{MAX_BOTS_PER_USER}* bots.", get_back_to_main_menu_keyboard())
+return
+
+# Delete old message and send a new one
+await query.message.delete()
+await query.message.chat.send_message(
+f"{EMOJI.ROBOT} Let's create a new bot using the *{template_info['name']}* template!\n\n"
+f"First, what do you want to name it? (e.g., `My{template_info['name'].replace(' ', '')}`).",
+parse_mode=ParseMode.MARKDOWN,
+reply_markup=get_cancel_keyboard()
+)
+return ASK_BOT_NAME
+--- Mirror File Conversation & Management ---
 @authorized_only
 async def mirror_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query
-    await query.answer()
+query = update.callback_query
+await query.answer()
 
-    if not RENDER_EXTERNAL_URL:
-        await edit_or_reply_message(update, f"{EMOJI.WARNING} Mirror service is not configured.", get_back_to_main_menu_keyboard())
-        return ConversationHandler.END
+if not RENDER_EXTERNAL_URL:
+await edit_or_reply_message(update, f"{EMOJI.WARNING} Mirror service is not configured.", get_back_to_main_menu_keyboard())
+return ConversationHandler.END
 
-    await query.message.delete()
-    await query.message.chat.send_message(
-        f"{EMOJI.MIRROR} *File Mirror*\
-\
-Send me any file (up to {MAX_MIRROR_FILE_SIZE/1024/1024:.0f}MB).",
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=get_cancel_keyboard()
-    )
-    return ASK_MIRROR_FILE
-
+await query.message.delete()
+await query.message.chat.send_message(
+f"{EMOJI.MIRROR} *File Mirror*\n\nSend me any file (up to {MAX_MIRROR_FILE_SIZE/1024/1024:.0f}MB).",
+parse_mode=ParseMode.MARKDOWN,
+reply_markup=get_cancel_keyboard()
+)
+return ASK_MIRROR_FILE
 async def receive_mirror_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    message = update.message
-    file_source = message.document or message.video or message.audio or (message.photo[-1] if message.photo else None)
-    
-    if not file_source:
-        await message.reply_text(f"{EMOJI.CANCEL} Please send a file or media to mirror.", reply_markup=get_cancel_keyboard())
-        return ASK_MIRROR_FILE
-    
-    if file_source.file_size > MAX_MIRROR_FILE_SIZE:
-        await message.reply_text(f"{EMOJI.CANCEL} File is too large. Maximum size is {MAX_MIRROR_FILE_SIZE/1024/1024:.0f}MB.", reply_markup=get_cancel_keyboard())
-        return ASK_MIRROR_FILE
+message = update.message
+file_source = message.document or message.video or message.audio or (message.photo[-1] if message.photo else None)
 
-    loading_msg = await send_loading_animation(context, message.chat_id, f"{EMOJI.LOADING} Downloading your file...")
-    
-    try:
-        file_name = getattr(file_source, 'file_name', f"{file_source.file_unique_id}.dat")
-        sanitized_filename = f"{file_source.file_unique_id}_{os.path.basename(file_name)}"
-        file_path = os.path.join(MIRROR_DIR, sanitized_filename)
+if not file_source:
+await message.reply_text(f"{EMOJI.CANCEL} Please send a file or media to mirror.", reply_markup=get_cancel_keyboard())
+return ASK_MIRROR_FILE
 
-        if not await download_file(context.bot, file_source.file_id, file_path):
-            await loading_msg.edit_caption(f"{EMOJI.CANCEL} Failed to download the file. Please try again.", reply_markup=get_cancel_keyboard())
-            return ASK_MIRROR_FILE
+if file_source.file_size > MAX_MIRROR_FILE_SIZE:
+await message.reply_text(f"{EMOJI.CANCEL} File is too large. Maximum size is {MAX_MIRROR_FILE_SIZE/1024/1024:.0f}MB.", reply_markup=get_cancel_keyboard())
+return ASK_MIRROR_FILE
 
-        file_url = f"{RENDER_EXTERNAL_URL}/mirror/{sanitized_filename}"
-        
-        await loading_msg.edit_caption(
-            f"{EMOJI.SUCCESS} *File Mirrored Successfully!*\
-\
-"
-            f"Here is your direct link:\
-`{file_url}`",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=get_back_to_main_menu_keyboard()
-        )
-    except Exception as e:
-        logger.error(f"Error mirroring file: {e}", exc_info=True)
-        await loading_msg.edit_caption(f"{EMOJI.CANCEL} An error occurred while mirroring the file. Please try again.")
-    
-    return ConversationHandler.END
+loading_msg = await send_loading_animation(context, message.chat_id, f"{EMOJI.LOADING} Downloading your file...")
 
+try:
+file_name = getattr(file_source, 'file_name', f"{file_source.file_unique_id}.dat")
+sanitized_filename = f"{file_source.file_unique_id}_{os.path.basename(file_name)}"
+file_path = os.path.join(MIRROR_DIR, sanitized_filename)
+
+if not await download_file(context.bot, file_source.file_id, file_path):
+await loading_msg.edit_caption(f"{EMOJI.CANCEL} Failed to download the file. Please try again.", reply_markup=get_cancel_keyboard())
+return ASK_MIRROR_FILE
+
+file_url = f"{RENDER_EXTERNAL_URL}/mirror/{sanitized_filename}"
+
+await loading_msg.edit_caption(
+f"{EMOJI.SUCCESS} *File Mirrored Successfully!*\n\n"
+f"Here is your direct link:\n`{file_url}`",
+parse_mode=ParseMode.MARKDOWN,
+reply_markup=get_back_to_main_menu_keyboard()
+)
+except Exception as e:
+logger.error(f"Error mirroring file: {e}", exc_info=True)
+await loading_msg.edit_caption(f"{EMOJI.CANCEL} An error occurred while mirroring the file. Please try again.")
+
+return ConversationHandler.END
 @authorized_only
 async def manage_mirror_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    mirror_size = get_dir_size(MIRROR_DIR)
-    text = f"""
-{EMOJI.MIRROR} *Mirror Management*
+query = update.callback_query
+await query.answer()
 
-You are currently using `{format_bytes(mirror_size)}` of storage for mirrored files.
-
-Maximum file size: `{format_bytes(MAX_MIRROR_FILE_SIZE)}`
-
+mirror_size = get_dir_size(MIRROR_DIR)
+text = f"""
+{EMOJI.MIRROR} Mirror Management
+You are currently using {format_bytes(mirror_size)} of storage for mirrored files.
+Maximum file size: {format_bytes(MAX_MIRROR_FILE_SIZE)}
 Remember that this storage is temporary and will be wiped on server restarts or redeploys.
 """
-    await edit_or_reply_message(update, text, get_mirror_management_keyboard(mirror_size))
+await edit_or_reply_message(update, text, get_mirror_management_keyboard(mirror_size))
 
 @authorized_only
 async def browse_mirror_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    if not os.path.exists(MIRROR_DIR) or not os.listdir(MIRROR_DIR):
-        await edit_or_reply_message(update, f"{EMOJI.MIRROR} No mirrored files found.", get_mirror_management_keyboard(0))
-        return
-    
-    files = os.listdir(MIRROR_DIR)
-    files.sort(key=lambda x: os.path.getmtime(os.path.join(MIRROR_DIR, x)), reverse=True)
-    
-    text = f"{EMOJI.MIRROR} *Mirrored Files*\
-\
-"
-    
-    for i, file_name in enumerate(files[:10], 1):
-        file_path = os.path.join(MIRROR_DIR, file_name)
-        file_size = os.path.getsize(file_path)
-        file_date = datetime.fromtimestamp(os.path.getmtime(file_path)).strftime("%Y-%m-%d %H:%M")
-        file_url = f"{RENDER_EXTERNAL_URL}/mirror/{file_name}"
-        
-        text += f"{i}. [{file_name}]({file_url}) - `{format_bytes(file_size)}` - {file_date}\
-"
-    
-    if len(files) > 10:
-        text += f"\
-_...and {len(files) - 10} more files._"
-    
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"{EMOJI.BACK} Back to Mirror Management", callback_data='manage_mirror')]
-    ])
-    
-    await edit_or_reply_message(update, text, keyboard)
+query = update.callback_query
+await query.answer()
 
+if not os.path.exists(MIRROR_DIR) or not os.listdir(MIRROR_DIR):
+await edit_or_reply_message(update, f"{EMOJI.MIRROR} No mirrored files found.", get_mirror_management_keyboard(0))
+return
+
+files = os.listdir(MIRROR_DIR)
+files.sort(key=lambda x: os.path.getmtime(os.path.join(MIRROR_DIR, x)), reverse=True)
+
+text = f"{EMOJI.MIRROR} *Mirrored Files*\n\n"
+
+for i, file_name in enumerate(files[:10], 1):
+file_path = os.path.join(MIRROR_DIR, file_name)
+file_size = os.path.getsize(file_path)
+file_date = datetime.fromtimestamp(os.path.getmtime(file_path)).strftime("%Y-%m-%d %H:%M")
+file_url = f"{RENDER_EXTERNAL_URL}/mirror/{file_name}"
+
+text += f"{i}. [{file_name}]({file_url}) - `{format_bytes(file_size)}` - {file_date}\n"
+
+if len(files) > 10:
+text += f"\n_...and {len(files) - 10} more files._"
+
+keyboard = InlineKeyboardMarkup([
+[InlineKeyboardButton(f"{EMOJI.BACK} Back to Mirror Management", callback_data='manage_mirror')]
+])
+
+await edit_or_reply_message(update, text, keyboard)
 @authorized_only
 async def delete_all_mirror_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    text = f"{EMOJI.WARNING} Are you sure you want to delete all mirrored files? This action cannot be undone."
-    await edit_or_reply_message(update, text, get_delete_all_mirror_confirmation_keyboard())
+query = update.callback_query
+await query.answer()
 
+text = f"{EMOJI.WARNING} Are you sure you want to delete all mirrored files? This action cannot be undone."
+await edit_or_reply_message(update, text, get_delete_all_mirror_confirmation_keyboard())
 @authorized_only
 async def delete_all_mirror_final_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer("Deleting files...")
-    
-    try:
-        shutil.rmtree(MIRROR_DIR)
-        os.makedirs(MIRROR_DIR)
-        text = f"{EMOJI.SUCCESS} All mirrored files have been deleted."
-    except Exception as e:
-        logger.error(f"Error deleting mirror directory: {e}")
-        text = f"{EMOJI.CANCEL} An error occurred while deleting files."
-        
-    await edit_or_reply_message(update, text, get_stats_keyboard())
+query = update.callback_query
+await query.answer("Deleting files...")
 
-# --- Bot Edit Code Handlers ---
+try:
+shutil.rmtree(MIRROR_DIR)
+os.makedirs(MIRROR_DIR)
+text = f"{EMOJI.SUCCESS} All mirrored files have been deleted."
+except Exception as e:
+logger.error(f"Error deleting mirror directory: {e}")
+text = f"{EMOJI.CANCEL} An error occurred while deleting files."
+
+await edit_or_reply_message(update, text, get_stats_keyboard())
+--- Bot Edit Code Handlers ---
 @authorized_only
 async def edit_bot_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query
-    await query.answer()
-    
-    _, action, bot_name = query.data.split(':', 2)
-    
-    if bot_name not in running_bots:
-        await edit_or_reply_message(update, f"{EMOJI.CANCEL} Bot not found.", get_back_to_main_menu_keyboard())
-        return ConversationHandler.END
-    
-    bot_dir = running_bots[bot_name]['bot_dir']
-    bot_file_path = os.path.join(bot_dir, "bot.py")
-    
-    if not os.path.exists(bot_file_path):
-        await edit_or_reply_message(update, f"{EMOJI.CANCEL} Bot file not found.", get_back_to_main_menu_keyboard())
-        return ConversationHandler.END
-    
-    with open(bot_file_path, 'r', encoding='utf-8') as f:
-        bot_code = f.read()
-    
-    # Store the bot name and code in user_data
-    context.user_data['edit_bot_name'] = bot_name
-    context.user_data['edit_bot_code'] = bot_code
-    
-    # Send the code as a document for editing
-    with tempfile.NamedTemporaryFile(suffix='.py', delete=False) as temp_file:
-        temp_file_path = temp_file.name
-        with open(temp_file_path, 'w', encoding='utf-8') as f:
-            f.write(bot_code)
-    
-    await query.message.reply_document(
-        document=open(temp_file_path, 'rb'),
-        filename=f"{bot_name}.py",
-        caption=f"{EMOJI.CODE} Here's the code for `{bot_name}`.\
-\
-Edit it and send it back to update the bot.",
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=get_edit_code_keyboard(bot_name)
-    )
-    
-    os.unlink(temp_file_path)
-    
-    return EDIT_CODE
+query = update.callback_query
+await query.answer()
 
+_, action, bot_name = query.data.split(':', 2)
+
+if bot_name not in running_bots:
+await edit_or_reply_message(update, f"{EMOJI.CANCEL} Bot not found.", get_back_to_main_menu_keyboard())
+return ConversationHandler.END
+
+bot_dir = running_bots[bot_name]['bot_dir']
+bot_file_path = os.path.join(bot_dir, "bot.py")
+
+if not os.path.exists(bot_file_path):
+await edit_or_reply_message(update, f"{EMOJI.CANCEL} Bot file not found.", get_back_to_main_menu_keyboard())
+return ConversationHandler.END
+
+with open(bot_file_path, 'r', encoding='utf-8') as f:
+bot_code = f.read()
+
+# Store the bot name and code in user_data
+context.user_data['edit_bot_name'] = bot_name
+context.user_data['edit_bot_code'] = bot_code
+
+# Send the code as a document for editing
+with tempfile.NamedTemporaryFile(suffix='.py', delete=False) as temp_file:
+temp_file_path = temp_file.name
+with open(temp_file_path, 'w', encoding='utf-8') as f:
+f.write(bot_code)
+
+await query.message.reply_document(
+document=open(temp_file_path, 'rb'),
+filename=f"{bot_name}.py",
+caption=f"{EMOJI.CODE} Here's the code for `{bot_name}`.\n\nEdit it and send it back to update the bot.",
+parse_mode=ParseMode.MARKDOWN,
+reply_markup=get_edit_code_keyboard(bot_name)
+)
+
+os.unlink(temp_file_path)
+
+return EDIT_CODE
 async def receive_edited_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    document = update.message.document
-    if not document or not any(document.file_name.lower().endswith(ft) for ft in ALLOWED_FILE_TYPES):
-        await update.message.reply_text(f"{EMOJI.CANCEL} Invalid file type. Please send a Python file.", reply_markup=get_cancel_keyboard())
-        return EDIT_CODE
-    
-    loading_msg = await send_loading_animation(context, update.effective_chat.id, f"{EMOJI.LOADING} Downloading your edited code...")
-    
-    with tempfile.TemporaryDirectory() as temp_dir:
-        temp_file_path = os.path.join(temp_dir, document.file_name)
-        if not await download_file(context.bot, document.file_id, temp_file_path):
-            await loading_msg.edit_caption(f"{EMOJI.CANCEL} Failed to download the file. Please try again.", reply_markup=get_cancel_keyboard())
-            return EDIT_CODE
-        
-        with open(temp_file_path, 'r', encoding='utf-8') as f:
-            edited_code = f.read()
-    
-    bot_name = context.user_data['edit_bot_name']
-    
-    # Update the bot code
-    bot_dir = running_bots[bot_name]['bot_dir']
-    bot_file_path = os.path.join(bot_dir, "bot.py")
-    
-    with open(bot_file_path, 'w', encoding='utf-8') as f:
-        f.write(edited_code)
-    
-    await loading_msg.edit_caption(
-        f"{EMOJI.SUCCESS} Code for `{bot_name}` has been updated!\
-\
-"
-        f"Would you like to restart the bot to apply changes?",
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton(f"{EMOJI.RESTART} Yes, restart now", callback_data=f'bot_action:restart:{bot_name}')],
-            [InlineKeyboardButton(f"{EMOJI.CANCEL} No, I'll do it later", callback_data=f'select_bot:{bot_name}')]
-        ])
-    )
-    
-    context.user_data.clear()
-    return ConversationHandler.END
+document = update.message.document
+if not document or not any(document.file_name.lower().endswith(ft) for ft in ALLOWED_FILE_TYPES):
+await update.message.reply_text(f"{EMOJI.CANCEL} Invalid file type. Please send a Python file.", reply_markup=get_cancel_keyboard())
+return EDIT_CODE
 
+loading_msg = await send_loading_animation(context, update.effective_chat.id, f"{EMOJI.LOADING} Downloading your edited code...")
+
+with tempfile.TemporaryDirectory() as temp_dir:
+temp_file_path = os.path.join(temp_dir, document.file_name)
+if not await download_file(context.bot, document.file_id, temp_file_path):
+await loading_msg.edit_caption(f"{EMOJI.CANCEL} Failed to download the file. Please try again.", reply_markup=get_cancel_keyboard())
+return EDIT_CODE
+
+with open(temp_file_path, 'r', encoding='utf-8') as f:
+edited_code = f.read()
+
+bot_name = context.user_data['edit_bot_name']
+
+# Update the bot code
+bot_dir = running_bots[bot_name]['bot_dir']
+bot_file_path = os.path.join(bot_dir, "bot.py")
+
+with open(bot_file_path, 'w', encoding='utf-8') as f:
+f.write(edited_code)
+
+await loading_msg.edit_caption(
+f"{EMOJI.SUCCESS} Code for `{bot_name}` has been updated!\n\n"
+f"Would you like to restart the bot to apply changes?",
+parse_mode=ParseMode.MARKDOWN,
+reply_markup=InlineKeyboardMarkup([
+[InlineKeyboardButton(f"{EMOJI.RESTART} Yes, restart now", callback_data=f'bot_action:restart:{bot_name}')],
+[InlineKeyboardButton(f"{EMOJI.CANCEL} No, I'll do it later", callback_data=f'select_bot:{bot_name}')]
+])
+)
+
+context.user_data.clear()
+return ConversationHandler.END
 async def save_edited_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query
-    await query.answer()
-    
-    _, bot_name = query.data.split(':', 1)
-    
-    await query.edit_message_text(
-        f"{EMOJI.CODE} Please send me the edited Python file for `{bot_name}`.",
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=get_cancel_keyboard()
-    )
-    
-    return EDIT_CODE
+query = update.callback_query
+await query.answer()
 
-# --- Other Callback Query Handlers ---
+_, bot_name = query.data.split(':', 1)
+
+await query.edit_message_text(
+f"{EMOJI.CODE} Please send me the edited Python file for `{bot_name}`.",
+parse_mode=ParseMode.MARKDOWN,
+reply_markup=get_cancel_keyboard()
+)
+
+return EDIT_CODE
+--- Other Callback Query Handlers ---
 async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    welcome_message = f"""
-{EMOJI.SPARKLES} *Welcome to BotHoster Pro!* {EMOJI.SPARKLES}
+query = update.callback_query
+await query.answer()
+
+welcome_message = f"""
+{EMOJI.SPARKLES} Welcome to BotHoster Pro! {EMOJI.SPARKLES}
 I can host and manage your Python Telegram bots.
 {EMOJI.GEAR} Use the menu below to get started.
 """
-    await query.message.delete()
-    await query.message.chat.send_animation(
-        animation=LOADING_ANIMATION_URL,
-        caption=welcome_message,
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=get_main_menu_keyboard()
-    )
+await query.message.delete()
+await query.message.chat.send_animation(
+animation=LOADING_ANIMATION_URL,
+caption=welcome_message,
+parse_mode=ParseMode.MARKDOWN,
+reply_markup=get_main_menu_keyboard()
+)
 
 @authorized_only
 async def select_bot_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    bot_name = query.data.split(':')[1]
-    
-    if bot_name not in running_bots:
-        await edit_or_reply_message(update, f"{EMOJI.CANCEL} Bot not found. It might have been removed.", get_back_to_main_menu_keyboard())
-        return
-        
-    info = running_bots[bot_name]
-    is_running = info['process'].poll() is None
-    status_emoji = EMOJI.GREEN_CIRCLE if is_running else EMOJI.RED_CIRCLE
-    status_text = "Running" if is_running else "Stopped"
-    
-    uptime = "N/A"
-    if is_running:
-        td = datetime.now() - info['start_time']
-        uptime = str(td).split('.')[0]
-    
-    restart_count = info.get('restart_count', 0)
-    last_restart = info.get('last_restart')
-    last_restart_text = last_restart.strftime("%Y-%m-%d %H:%M:%S") if last_restart else "N/A"
+query = update.callback_query
+await query.answer()
 
-    text = f"""
-{EMOJI.GEAR} *Managing Bot: `{bot_name}`*
-Status: {status_emoji} *{status_text}*
-Uptime: `{uptime}`
-Restarts: `{restart_count}`
-Last Restart: `{last_restart_text}`
+bot_name = query.data.split(':')[1]
+
+if bot_name not in running_bots:
+await edit_or_reply_message(update, f"{EMOJI.CANCEL} Bot not found. It might have been removed.", get_back_to_main_menu_keyboard())
+return
+
+info = running_bots[bot_name]
+is_running = info['process'].poll() is None
+status_emoji = EMOJI.GREEN_CIRCLE if is_running else EMOJI.RED_CIRCLE
+status_text = "Running" if is_running else "Stopped"
+
+uptime = "N/A"
+if is_running:
+td = datetime.now() - info['start_time']
+uptime = str(td).split('.')[0]
+
+restart_count = info.get('restart_count', 0)
+last_restart = info.get('last_restart')
+last_restart_text = last_restart.strftime("%Y-%m-%d %H:%M:%S") if last_restart else "N/A"
+
+text = f"""
+{EMOJI.GEAR} Managing Bot: {bot_name}
+Status: {status_emoji} {status_text}
+Uptime: {uptime}
+Restarts: {restart_count}
+Last Restart: {last_restart_text}
 
 What would you like to do?
 """
-    await edit_or_reply_message(update, text, get_bot_actions_keyboard(bot_name))
+await edit_or_reply_message(update, text, get_bot_actions_keyboard(bot_name))
 
 @authorized_only
 async def bot_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    _, action, bot_name = query.data.split(':', 2)
-    
-    if action == 'delete_confirm':
-        await edit_or_reply_message(update, f"{EMOJI.WARNING} Are you sure you want to permanently delete `{bot_name}`?", reply_markup=get_delete_confirmation_keyboard(bot_name))
-        return
-    
-    if action == 'edit':
-        # This is handled by the conversation handler
-        return await edit_bot_code(update, context)
-    
-    loading_msg = await send_loading_animation(context, query.message.chat_id, f"{EMOJI.LOADING} Processing request for `{bot_name}`...")
-    
-    if bot_name not in running_bots and action != 'backup':
-        await loading_msg.edit_caption(f"{EMOJI.CANCEL} Bot not found.", reply_markup=get_back_to_main_menu_keyboard())
-        return
+query = update.callback_query
+await query.answer()
 
-    if action == 'stop':
-        stop_bot_process(bot_name)
-        await loading_msg.edit_caption(f"{EMOJI.STOP} Bot `{bot_name}` has been stopped.", reply_markup=get_bot_actions_keyboard(bot_name))
-    
-    elif action == 'start':
-        if start_bot_process(bot_name):
-            await loading_msg.edit_caption(f"{EMOJI.SUCCESS} Bot `{bot_name}` successfully started!", reply_markup=get_bot_actions_keyboard(bot_name))
-        else:
-            await loading_msg.edit_caption(f"{EMOJI.CANCEL} Failed to start `{bot_name}`.", reply_markup=get_bot_actions_keyboard(bot_name))
-    
-    elif action == 'restart':
-        if restart_bot_process(bot_name):
-            await loading_msg.edit_caption(f"{EMOJI.SUCCESS} Bot `{bot_name}` successfully restarted!", reply_markup=get_bot_actions_keyboard(bot_name))
-        else:
-            await loading_msg.edit_caption(f"{EMOJI.CANCEL} Failed to restart `{bot_name}`.", reply_markup=get_bot_actions_keyboard(bot_name))
-    
-    elif action == 'logs':
-        logs = get_bot_logs(bot_name)
-        log_output = f"... {logs[-3500:]}" if len(logs) > 3500 else logs
-        await loading_msg.delete()
-        await query.message.reply_text(f"{EMOJI.LOGS} *Logs for `{bot_name}`:*\
-\
-```\
-{log_output}\
-```", parse_mode=ParseMode.MARKDOWN, reply_markup=get_bot_actions_keyboard(bot_name))
 
-    elif action == 'resources':
-        resources = get_bot_resource_usage(bot_name)
-        resource_text = f"""
-{EMOJI.HEALTH} *Resource Usage for `{bot_name}`*
+Line Wrapping
 
-{EMOJI.BAR_CHART} CPU Usage: `{resources['cpu_percent']:.1f}%`
-{EMOJI.STORAGE} Memory Usage: `{resources['memory_used']} ({resources['memory_percent']:.1f}%)`
-{EMOJI.ROCKET} Threads: `{resources['threads']}`
-{EMOJI.INFO} Status: `{resources['status']}`
-{EMOJI.ROCKET} Running Time: `{resources['running_time']}`
+Collapse
+Copy
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+_, action, bot_name = query.data.split(':', 2)
+
+if action == 'delete_confirm':
+    await edit_or_reply_message(update, f"{EMOJI.WARNING} Are you sure you want to permanently delete `{bot_name}`?", reply_markup=get_delete_confirmation_keyboard(bot_name))
+    return
+
+if action == 'edit':
+    # This is handled by the conversation handler
+    return await edit_bot_code(update, context)
+
+loading_msg = await send_loading_animation(context, query.message.chat_id, f"{EMOJI.LOADING} Processing request for `{bot_name}`...")
+
+if bot_name not in running_bots and action != 'backup':
+    await loading_msg.edit_caption(f"{EMOJI.CANCEL} Bot not found.", reply_markup=get_back_to_main_menu_keyboard())
+    return
+    
+if action == 'stop':
+    stop_bot_process(bot_name)
+    await loading_msg.edit_caption(f"{EMOJI.STOP} Bot `{bot_name}` has been stopped.", reply_markup=get_bot_actions_keyboard(bot_name))
+
+elif action == 'start':
+    if start_bot_process(bot_name):
+        await loading_msg.edit_caption(f"{EMOJI.SUCCESS} Bot `{bot_name}` successfully started!", reply_markup=get_bot_actions_keyboard(bot_name))
+    else:
+        await loading_msg.edit_caption(f"{EMOJI.CANCEL} Failed to start `{bot_name}`.", reply_markup=get_bot_actions_keyboard(bot_name))
+
+elif action == 'restart':
+    if restart_bot_process(bot_name):
+        await loading_msg.edit_caption(f"{EMOJI.SUCCESS} Bot `{bot_name}` successfully restarted!", reply_markup=get_bot_actions_keyboard(bot_name))
+{EMOJI.HEALTH} Resource Usage for {bot_name}
+{EMOJI.BAR_CHART} CPU Usage: {resources['cpu_percent']:.1f}%
+{EMOJI.STORAGE} Memory Usage: {resources['memory_used']} ({resources['memory_percent']:.1f}%)
+{EMOJI.ROCKET} Threads: {resources['threads']}
+{EMOJI.INFO} Status: {resources['status']}
+{EMOJI.ROCKET} Running Time: {resources['running_time']}
 """
-        await loading_msg.edit_caption(resource_text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_bot_actions_keyboard(bot_name))
+await loading_msg.edit_caption(resource_text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_bot_actions_keyboard(bot_name))
 
-    elif action == 'download':
-        bot_dir = running_bots[bot_name]['bot_dir']
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_f:
-            for item_name in ["bot.py", "requirements.txt"]:
-                item_path = os.path.join(bot_dir, item_name)
-                if os.path.exists(item_path):
-                    zip_f.write(item_path, item_name)
-        zip_buffer.seek(0)
-        
-        await loading_msg.delete()
-        await query.message.reply_document(document=zip_buffer, filename=f"{bot_name}_source.zip", caption=f"{EMOJI.DOWNLOAD} Here's the source code for `{bot_name}`.")
-    
-    elif action == 'backup':
-        try:
-            # Create a backup of the bot
-            bot_dir = running_bots[bot_name]['bot_dir']
-            backup_buffer = io.BytesIO()
-            
-            with zipfile.ZipFile(backup_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_f:
-                # Add bot files
-                for root, _, files in os.walk(bot_dir):
-                    for file in files:
-                        file_path = os.path.join(root, file)
-                        arc_name = os.path.relpath(file_path, bot_dir)
-                        zip_f.write(file_path, arc_name)
-                
-                # Add metadata
-                metadata = {
-                    "bot_name": bot_name,
-                    "token": running_bots[bot_name]['token'],
-                    "backup_date": datetime.now().isoformat(),
-                    "restart_count": running_bots[bot_name].get('restart_count', 0)
-                }
-                
-                zip_f.writestr("metadata.json", json.dumps(metadata, indent=2))
-            
-            backup_buffer.seek(0)
-            await loading_msg.delete()
-            await query.message.reply_document(
-                document=backup_buffer,
-                filename=f"{bot_name}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
-                caption=f"{EMOJI.BACKUP} Backup of `{bot_name}` created successfully!",
-                parse_mode=ParseMode.MARKDOWN
-            )
-        except Exception as e:
-            logger.error(f"Error creating backup for {bot_name}: {e}")
-            await loading_msg.edit_caption(f"{EMOJI.CANCEL} Failed to create backup: {str(e)}", reply_markup=get_bot_actions_keyboard(bot_name))
-        
-    elif action == 'delete_final':
-        bot_dir = running_bots[bot_name].get('bot_dir')
-        stop_bot_process(bot_name)
-        del running_bots[bot_name]
-        
-        if bot_dir and os.path.exists(bot_dir):
-            shutil.rmtree(bot_dir, ignore_errors=True)
-        
-        # Also clean up log files
-        log_dir = os.path.join(LOGS_DIR, bot_name)
-        if os.path.exists(log_dir):
-            shutil.rmtree(log_dir, ignore_errors=True)
-        
-        await loading_msg.edit_caption(f"{EMOJI.SUCCESS} Bot `{bot_name}` has been deleted.", reply_markup=get_back_to_main_menu_keyboard())
+elif action == 'download':
+bot_dir = running_bots[bot_name]['bot_dir']
+zip_buffer = io.BytesIO()
+with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_f:
+for item_name in ["bot.py", "requirements.txt"]:
+item_path = os.path.join(bot_dir, item_name)
+if os.path.exists(item_path):
+zip_f.write(item_path, item_name)
+zip_buffer.seek(0)
 
+await loading_msg.delete()
+await query.message.reply_document(document=zip_buffer, filename=f"{bot_name}_source.zip", caption=f"{EMOJI.DOWNLOAD} Here's the source code for `{bot_name}`.")
+
+elif action == 'backup':
+try:
+# Create a backup of the bot
+bot_dir = running_bots[bot_name]['bot_dir']
+backup_buffer = io.BytesIO()
+
+with zipfile.ZipFile(backup_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_f:
+# Add bot files
+for root, _, files in os.walk(bot_dir):
+for file in files:
+file_path = os.path.join(root, file)
+arc_name = os.path.relpath(file_path, bot_dir)
+zip_f.write(file_path, arc_name)
+
+# Add metadata
+metadata = {
+"bot_name": bot_name,
+"token": running_bots[bot_name]['token'],
+"backup_date": datetime.now().isoformat(),
+"restart_count": running_bots[bot_name].get('restart_count', 0)
+}
+
+zip_f.writestr("metadata.json", json.dumps(metadata, indent=2))
+
+backup_buffer.seek(0)
+await loading_msg.delete()
+await query.message.reply_document(
+document=backup_buffer,
+filename=f"{bot_name}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+caption=f"{EMOJI.BACKUP} Backup of `{bot_name}` created successfully!",
+parse_mode=ParseMode.MARKDOWN
+)
+except Exception as e:
+logger.error(f"Error creating backup for {bot_name}: {e}")
+await loading_msg.edit_caption(f"{EMOJI.CANCEL} Failed to create backup: {str(e)}", reply_markup=get_bot_actions_keyboard(bot_name))
+
+elif action == 'delete_final':
+bot_dir = running_bots[bot_name].get('bot_dir')
+stop_bot_process(bot_name)
+del running_bots[bot_name]
+
+if bot_dir and os.path.exists(bot_dir):
+shutil.rmtree(bot_dir, ignore_errors=True)
+
+# Also clean up log files
+log_dir = os.path.join(LOGS_DIR, bot_name)
+if os.path.exists(log_dir):
+shutil.rmtree(log_dir, ignore_errors=True)
+
+await loading_msg.edit_caption(f"{EMOJI.SUCCESS} Bot `{bot_name}` has been deleted.", reply_markup=get_back_to_main_menu_keyboard())
 @authorized_only
 async def delete_all_bots_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    if not running_bots:
-        await edit_or_reply_message(update, f"{EMOJI.CLIPBOARD} There are no bots to delete.", get_main_menu_keyboard())
-        return
-    await edit_or_reply_message(update, f"{EMOJI.WARNING} *DANGER ZONE*\
-\
-Are you sure you want to delete all *{len(running_bots)}* bots?", get_delete_all_confirmation_keyboard())
+query = update.callback_query
+await query.answer()
 
+if not running_bots:
+await edit_or_reply_message(update, f"{EMOJI.CLIPBOARD} There are no bots to delete.", get_main_menu_keyboard())
+return
+
+await edit_or_reply_message(update, f"{EMOJI.WARNING} *DANGER ZONE*\n\nAre you sure you want to delete all *{len(running_bots)}* bots?", get_delete_all_confirmation_keyboard())
 @authorized_only
 async def delete_all_bots_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    loading_msg = await send_loading_animation(context, query.message.chat_id, f"{EMOJI.LOADING} Deleting all bots...")
-    
-    for bot_name in list(running_bots.keys()):
-        bot_dir = running_bots[bot_name].get('bot_dir')
-        stop_bot_process(bot_name)
-        if bot_dir and os.path.exists(bot_dir):
-            shutil.rmtree(bot_dir, ignore_errors=True)
-        
-        # Also clean up log files
-        log_dir = os.path.join(LOGS_DIR, bot_name)
-        if os.path.exists(log_dir):
-            shutil.rmtree(log_dir, ignore_errors=True)
-            
-    running_bots.clear()
-    
-    await loading_msg.edit_caption(f"{EMOJI.SUCCESS} All hosted bots have been removed.", reply_markup=get_main_menu_keyboard())
+query = update.callback_query
+await query.answer()
 
+loading_msg = await send_loading_animation(context, query.message.chat_id, f"{EMOJI.LOADING} Deleting all bots...")
+
+for bot_name in list(running_bots.keys()):
+bot_dir = running_bots[bot_name].get('bot_dir')
+stop_bot_process(bot_name)
+if bot_dir and os.path.exists(bot_dir):
+shutil.rmtree(bot_dir, ignore_errors=True)
+
+# Also clean up log files
+log_dir = os.path.join(LOGS_DIR, bot_name)
+if os.path.exists(log_dir):
+shutil.rmtree(log_dir, ignore_errors=True)
+
+running_bots.clear()
+
+await loading_msg.edit_caption(f"{EMOJI.SUCCESS} All hosted bots have been removed.", reply_markup=get_main_menu_keyboard())
 @authorized_only
 async def settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    settings_text = f"""
-{EMOJI.GEAR} *BotHoster Pro Settings*
-These settings are configured in the `users.json` file.
+query = update.callback_query
+await query.answer()
 
-{EMOJI.ROBOT} *Authorization*
-- Authorized User IDs: `{', '.join(map(str, AUTHORIZED_USERS))}`
+settings_text = f"""
+{EMOJI.GEAR} BotHoster Pro Settings
+These settings are configured in the users.json file.
 
-{EMOJI.WRENCH} *Limits & Rules*
-- Max Bots Per User: *{MAX_BOTS_PER_USER}*
-- Max Bot Script Size: *{MAX_BOT_FILE_SIZE/1024/1024:.1f} MB*
-- Max Mirror File Size: *{MAX_MIRROR_FILE_SIZE/1024/1024:.0f} MB*
-- Auto Restart Bots: *{'Enabled' if AUTO_RESTART_BOTS else 'Disabled'}*
-- Log Retention: *{LOG_RETENTION_DAYS} days*
+{EMOJI.ROBOT} Authorization
 
-{EMOJI.TEMPLATE} *Templates*
-- Available Templates: *{len(BOT_TEMPLATES)}*
+Authorized User IDs: {', '.join(map(str, AUTHORIZED_USERS))}
+{EMOJI.WRENCH} Limits & Rules
+
+Max Bots Per User: {MAX_BOTS_PER_USER}
+Max Bot Script Size: {MAX_BOT_FILE_SIZE/1024/1024:.1f} MB
+Max Mirror File Size: {MAX_MIRROR_FILE_SIZE/1024/1024:.0f} MB
+Auto Restart Bots: {'Enabled' if AUTO_RESTART_BOTS else 'Disabled'}
+Log Retention: {LOG_RETENTION_DAYS} days
+{EMOJI.TEMPLATE} Templates
+
+Available Templates: {len(BOT_TEMPLATES)}
 """
-    await edit_or_reply_message(update, settings_text, get_main_menu_keyboard())
-
+await edit_or_reply_message(update, settings_text, get_main_menu_keyboard())
 async def autoreact(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message:
-        try:
-            await update.message.set_reaction(reaction="\ud83d\udc4d")
-        except Exception as e:
-            logger.info(f"Could not set reaction: {e}")
+if update.message:
+try:
+await update.message.set_reaction(reaction="👍")
+except Exception as e:
+logger.info(f"Could not set reaction: {e}")
 
-# --- Main Application Setup ---
+--- Main Application Setup ---
 def main():
-    """Initializes and runs the bot application."""
-    application = Application.builder().token(TOKEN).build()
-    
-    # Create template files
-    create_bot_template_files()
-    
-    # Start the bot monitor task
-    global bot_monitor_task
-    bot_monitor_task = asyncio.create_task(monitor_bots())
-    
-    upload_conv_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(upload_start, pattern='^upload_start$')],
-        states={
-            ASK_BOT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_bot_file)],
-            GET_BOT_FILE: [MessageHandler(filters.Document.ALL, receive_bot_file)],
-            GET_TOKEN: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_token_and_ask_requirements)],
-            GET_REQUIREMENTS: [
-                CallbackQueryHandler(handle_requirements_decision, pattern='^(has_requirements|no_requirements)$'),
-                MessageHandler(filters.Document.ALL, receive_requirements_file),
-            ],
-        },
-        fallbacks=[CallbackQueryHandler(cancel_operation, pattern='^cancel_operation$'), CommandHandler('cancel', cancel_operation)],
-        per_user=True, per_chat=True
-    )
+"""Initializes and runs the bot application."""
+application = Application.builder().token(TOKEN).build()
 
-    mirror_conv_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(mirror_start, pattern='^mirror_start$')],
-        states={
-            ASK_MIRROR_FILE: [MessageHandler(filters.ALL & ~filters.COMMAND, receive_mirror_file)]
-        },
-        fallbacks=[CallbackQueryHandler(cancel_operation, pattern='^cancel_operation$'), CommandHandler('cancel', cancel_operation)],
-        per_user=True, per_chat=True
-    )
-    
-    edit_code_conv_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(edit_bot_code, pattern='^bot_action:edit:')],
-        states={
-            EDIT_CODE: [
-                CallbackQueryHandler(save_edited_code, pattern='^save_code:'),
-                MessageHandler(filters.Document.ALL, receive_edited_code)
-            ]
-        },
-        fallbacks=[CallbackQueryHandler(cancel_operation, pattern='^cancel_operation$'), CommandHandler('cancel', cancel_operation)],
-        per_user=True, per_chat=True
-    )
+# Create template files
+create_bot_template_files()
 
-    application.add_handler(upload_conv_handler)
-    application.add_handler(mirror_conv_handler)
-    application.add_handler(edit_code_conv_handler)
-    
-    application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("list", list_bots_command))
-    application.add_handler(CommandHandler("stats", stats_command))
-    application.add_handler(CommandHandler("help", help_command))
+# Start the bot monitor task
+global bot_monitor_task
+bot_monitor_task = asyncio.create_task(monitor_bots())
 
-    application.add_handler(CallbackQueryHandler(main_menu_callback, pattern='^main_menu$'))
-    application.add_handler(CallbackQueryHandler(list_bots_command, pattern='^list_bots$'))
-    application.add_handler(CallbackQueryHandler(stats_command, pattern='^stats$'))
-    application.add_handler(CallbackQueryHandler(help_command, pattern='^help$'))
-    application.add_handler(CallbackQueryHandler(settings_callback, pattern='^settings$'))
-    application.add_handler(CallbackQueryHandler(system_health_command, pattern='^system_health$'))
-    application.add_handler(CallbackQueryHandler(clean_logs_command, pattern='^clean_logs$'))
-    
-    application.add_handler(CallbackQueryHandler(template_list_command, pattern='^template_list$'))
-    application.add_handler(CallbackQueryHandler(select_template_command, pattern='^select_template:'))
-    application.add_handler(CallbackQueryHandler(use_template_command, pattern='^use_template:'))
-    
-    application.add_handler(CallbackQueryHandler(start_all_bots_command, pattern='^start_all_bots$'))
-    application.add_handler(CallbackQueryHandler(stop_all_bots_command, pattern='^stop_all_bots$'))
+upload_conv_handler = ConversationHandler(
+entry_points=[CallbackQueryHandler(upload_start, pattern='^upload_start$')],
+states={
+ASK_BOT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_bot_file)],
+GET_BOT_FILE: [MessageHandler(filters.Document.ALL, receive_bot_file)],
+GET_TOKEN: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_token_and_ask_requirements)],
+GET_REQUIREMENTS: [
+CallbackQueryHandler(handle_requirements_decision, pattern='^(has_requirements|no_requirements)$'),
+MessageHandler(filters.Document.ALL, receive_requirements_file),
+],
+},
+fallbacks=[CallbackQueryHandler(cancel_operation, pattern='^cancel_operation$'), CommandHandler('cancel', cancel_operation)],
+per_user=True, per_chat=True
+)
 
-    application.add_handler(CallbackQueryHandler(manage_mirror_callback, pattern='^manage_mirror$'))
-    application.add_handler(CallbackQueryHandler(browse_mirror_callback, pattern='^browse_mirror$'))
-    application.add_handler(CallbackQueryHandler(delete_all_mirror_confirm_callback, pattern='^delete_all_mirror_confirm$'))
-    application.add_handler(CallbackQueryHandler(delete_all_mirror_final_callback, pattern='^delete_all_mirror_final$'))
+mirror_conv_handler = ConversationHandler(
+entry_points=[CallbackQueryHandler(mirror_start, pattern='^mirror_start$')],
+states={
+ASK_MIRROR_FILE: [MessageHandler(filters.ALL & ~filters.COMMAND, receive_mirror_file)]
+},
+fallbacks=[CallbackQueryHandler(cancel_operation, pattern='^cancel_operation$'), CommandHandler('cancel', cancel_operation)],
+per_user=True, per_chat=True
+)
 
-    application.add_handler(CallbackQueryHandler(select_bot_callback, pattern=r'^select_bot:'))
-    application.add_handler(CallbackQueryHandler(bot_action_callback, pattern=r'^bot_action:'))
-    
-    application.add_handler(CallbackQueryHandler(delete_all_bots_confirm, pattern='^delete_all_confirm$'))
-    application.add_handler(CallbackQueryHandler(delete_all_bots_final, pattern='^delete_all_final$'))
+edit_code_conv_handler = ConversationHandler(
+entry_points=[CallbackQueryHandler(edit_bot_code, pattern='^bot_action:edit:')],
+states={
+EDIT_CODE: [
+CallbackQueryHandler(save_edited_code, pattern='^save_code:'),
+MessageHandler(filters.Document.ALL, receive_edited_code)
+]
+},
+fallbacks=[CallbackQueryHandler(cancel_operation, pattern='^cancel_operation$'), CommandHandler('cancel', cancel_operation)],
+per_user=True, per_chat=True
+)
 
-    application.add_handler(MessageHandler(filters.COMMAND, start_command)) # Fallback for unknown commands
-    application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, autoreact))
-    
-    logger.info("Bot is starting...")
-    application.run_polling()
+application.add_handler(upload_conv_handler)
+application.add_handler(mirror_conv_handler)
+application.add_handler(edit_code_conv_handler)
 
-if __name__ == "__main__":
-    main()
+application.add_handler(CommandHandler("start", start_command))
+application.add_handler(CommandHandler("list", list_bots_command))
+application.add_handler(CommandHandler("stats", stats_command))
+application.add_handler(CommandHandler("help", help_command))
+application.add_handler(CallbackQueryHandler(main_menu_callback, pattern='^main_menu$'))
+application.add_handler(CallbackQueryHandler(list_bots_command, pattern='^list_bots$'))
+application.add_handler(CallbackQueryHandler(stats_command, pattern='^stats$'))
+application.add_handler(CallbackQueryHandler(help_command, pattern='^help$'))
+application.add_handler(CallbackQueryHandler(settings_callback, pattern='^settings$'))
+application.add_handler(CallbackQueryHandler(system_health_command, pattern='^system_health$'))
+application.add_handler(CallbackQueryHandler(clean_logs_command, pattern='^clean_logs$'))
+
+application.add_handler(CallbackQueryHandler(template_list_command, pattern='^template_list$'))
+application.add_handler(CallbackQueryHandler(select_template_command, pattern='^select_template:'))
+application.add_handler(CallbackQueryHandler(use_template_command, pattern='^use_template:'))
+
+application.add_handler(CallbackQueryHandler(start_all_bots_command, pattern='^start_all_bots$'))
+application.add_handler(CallbackQueryHandler(stop_all_bots_command, pattern='^stop_all_bots$'))
+application.add_handler(CallbackQueryHandler(manage_mirror_callback, pattern='^manage_mirror$'))
+application.add_handler(CallbackQueryHandler(browse_mirror_callback, pattern='^browse_mirror$'))
+application.add_handler(CallbackQueryHandler(delete_all_mirror_confirm_callback, pattern='^delete_all_mirror_confirm$'))
+application.add_handler(CallbackQueryHandler(delete_all_mirror_final_callback, pattern='^delete_all_mirror_final$'))
+application.add_handler(CallbackQueryHandler(select_bot_callback, pattern=r'^select_bot:'))
+application.add_handler(CallbackQueryHandler(bot_action_callback, pattern=r'^bot_action:'))
+
+application.add_handler(CallbackQueryHandler(delete_all_bots_confirm, pattern='^delete_all_confirm$'))
+application.add_handler(CallbackQueryHandler(delete_all_bots_final, pattern='^delete_all_final$'))
+application.add_handler(MessageHandler(filters.COMMAND, start_command)) # Fallback for unknown commands
+application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, autoreact))
+
+logger.info("Bot is starting...")
+application.run_polling()
+if name == "main":
+main()
+
