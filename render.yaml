@@ -1,3 +1,4 @@
+
 services:
   - type: web
     name: telegram-bot-host
@@ -8,5 +9,6 @@ services:
         value: "8109732136:AAGoVJURJtbUJuqcN84ciC5We2Ni3W4OMYM"
       - key: PYTHONUNBUFFERED
         value: "1"
-    healthCheck:
-      path: /health
+    healthCheckPath: /health
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
