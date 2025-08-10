@@ -168,7 +168,7 @@ class EMOJI:
     WRENCH = "\ud83d\udd27"
     MIRROR = "\ud83e\ude9e"
     STORAGE = "\ud83d\udcbe"
-    TEMPLATE = "\ud83d\udcdd"
+    = "\ud83d\udcdd"
     HEALTH = "\u2764\ufe0f"
     SEARCH = "\ud83d\udd0d"
     FILTER = "\ud83d\udd0e"
@@ -1826,7 +1826,7 @@ async def use_template_command(update: Update, context: ContextTypes.DEFAULT_TYP
             f"{EMOJI.CANCEL} Template not found.",
             get_template_list_keyboard()
         )
-        return
+        return ConversationHandler.END
 
     template_info = BOT_TEMPLATES[template_id]
     template_path = os.path.join(os.getcwd(), template_info['file'])
@@ -1837,34 +1837,30 @@ async def use_template_command(update: Update, context: ContextTypes.DEFAULT_TYP
             f"{EMOJI.CANCEL} Template file not found. Please try again later.",
             get_template_list_keyboard()
         )
-        return
+        return ConversationHandler.END
 
     with open(template_path, 'r') as f:
         template_code = f.read()
 
-    # Use template_code however your bot logic requires
-    await edit_or_reply_message(
-        update,
-        f"{EMOJI.CHECK} Template '{template_info['name']}' applied successfully!"
+    # Store the template code in user_data
+    context.user_data['bot_code'] = template_code
+
+    # Continue with the bot creation flow
+    user_bots_count = len(running_bots)
+    if user_bots_count >= MAX_BOTS_PER_USER:
+        await edit_or_reply_message(update, f"{EMOJI.WARNING} You have reached the maximum of *{MAX_BOTS_PER_USER}* bots.", get_back_to_main_menu_keyboard())
+        return ConversationHandler.END
+
+    # Delete old message and send a new one
+    await query.message.delete()
+    await query.message.chat.send_message(
+        f"{EMOJI.ROBOT} Let's create a new bot using the *{template_info['name']}* template!\n\n"
+        f"First, what do you want to name it? (e.g., `My{template_info['name'].replace(' ', '')}`).",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=get_cancel_keyboard()
     )
-# Store the template code in user_data
-context.user_data['bot_code'] = template_code
+    return ASK_BOT_NAME
 
-# Continue with the bot creation flow
-user_bots_count = len(running_bots)
-if user_bots_count >= MAX_BOTS_PER_USER:
-await edit_or_reply_message(update, f"{EMOJI.WARNING} You have reached the maximum of *{MAX_BOTS_PER_USER}* bots.", get_back_to_main_menu_keyboard())
-return
-
-# Delete old message and send a new one
-await query.message.delete()
-await query.message.chat.send_message(
-f"{EMOJI.ROBOT} Let's create a new bot using the *{template_info['name']}* template!\n\n"
-f"First, what do you want to name it? (e.g., `My{template_info['name'].replace(' ', '')}`).",
-parse_mode=ParseMode.MARKDOWN,
-reply_markup=get_cancel_keyboard()
-)
-return ASK_BOT_NAME
 --- Mirror File Conversation & Management ---
 @authorized_only
 async def mirror_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
