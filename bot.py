@@ -1777,53 +1777,76 @@ async def template_list_command(update: Update, context: ContextTypes.DEFAULT_TY
 async def select_template_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
+
     template_id = query.data.split(':', 1)[1]
     if template_id not in BOT_TEMPLATES:
-        await edit_or_reply_message(update, f"{EMOJI.CANCEL} Template not found.", get_template_list_keyboard())
+        await edit_or_reply_message(
+            update,
+            f"{EMOJI.CANCEL} Template not found.",
+            get_template_list_keyboard()
+        )
         return
-    
+
     template_info = BOT_TEMPLATES[template_id]
     template_path = os.path.join(os.getcwd(), template_info['file'])
-    
+
     if not os.path.exists(template_path):
-        await edit_or_reply_message(update, f"{EMOJI.CANCEL} Template file not found. Please try again later.", get_template_list_keyboard())
+        await edit_or_reply_message(
+            update,
+            f"{EMOJI.CANCEL} Template file not found. Please try again later.",
+            get_template_list_keyboard()
+        )
         return
-    
+
     with open(template_path, 'r') as f:
         template_code = f.read()
-    
+
     template_preview = template_code[:500] + "..." if len(template_code) > 500 else template_code
-    
+
     template_text = f"""
-{EMOJI.TEMPLATE} *{template_info['name']}*
+{EMOJI.TEMPLATE} {template_info['name']}
 {template_info['description']}
 
-*Code Preview:*
-```python
-{template_preview"""
-await edit_or_reply_message(update, template_text, get_template_action_keyboard(template_id))
+Code Preview:
+
+{template_preview}
+"""
+    await edit_or_reply_message(update, template_text, get_template_action_keyboard(template_id))
+
 
 @authorized_only
 async def use_template_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-query = update.callback_query
-await query.answer()
+    query = update.callback_query
+    await query.answer()
 
-template_id = query.data.split(':', 1)[1]
-if template_id not in BOT_TEMPLATES:
-await edit_or_reply_message(update, f"{EMOJI.CANCEL} Template not found.", get_template_list_keyboard())
-return
+    template_id = query.data.split(':', 1)[1]
+    if template_id not in BOT_TEMPLATES:
+        await edit_or_reply_message(
+            update,
+            f"{EMOJI.CANCEL} Template not found.",
+            get_template_list_keyboard()
+        )
+        return
 
-template_info = BOT_TEMPLATES[template_id]
-template_path = os.path.join(os.getcwd(), template_info['file'])
+    template_info = BOT_TEMPLATES[template_id]
+    template_path = os.path.join(os.getcwd(), template_info['file'])
 
-if not os.path.exists(template_path):
-await edit_or_reply_message(update, f"{EMOJI.CANCEL} Template file not found. Please try again later.", get_template_list_keyboard())
-return
+    if not os.path.exists(template_path):
+        await edit_or_reply_message(
+            update,
+            f"{EMOJI.CANCEL} Template file not found. Please try again later.",
+            get_template_list_keyboard()
+        )
+        return
 
-with open(template_path, 'r') as f:
-template_code = f.read()
+    with open(template_path, 'r') as f:
+        template_code = f.read()
 
+    # Use template_code however your bot logic requires
+    await edit_or_reply_message(
+        update,
+        f"{EMOJI.CHECK} Template '{template_info['name']}' applied successfully!"
+    )
 # Store the template code in user_data
 context.user_data['bot_code'] = template_code
 
@@ -2147,6 +2170,18 @@ Copy
 27
 28
 29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
 _, action, bot_name = query.data.split(':', 2)
 
 if action == 'delete_confirm':
@@ -2176,6 +2211,18 @@ elif action == 'start':
 elif action == 'restart':
     if restart_bot_process(bot_name):
         await loading_msg.edit_caption(f"{EMOJI.SUCCESS} Bot `{bot_name}` successfully restarted!", reply_markup=get_bot_actions_keyboard(bot_name))
+    else:
+        await loading_msg.edit_caption(f"{EMOJI.CANCEL} Failed to restart `{bot_name}`.", reply_markup=get_bot_actions_keyboard(bot_name))
+
+elif action == 'logs':
+    logs = get_bot_logs(bot_name)
+    log_output = f"... {logs[-3500:]}" if len(logs) > 3500 else logs
+    await loading_msg.delete()
+    await query.message.reply_text(f"{EMOJI.LOGS} *Logs for `{bot_name}`:*\n\n```\n{log_output}\n```", parse_mode=ParseMode.MARKDOWN, reply_markup=get_bot_actions_keyboard(bot_name))
+
+elif action == 'resources':
+    resources = get_bot_resource_usage(bot_name)
+    resource_text = f"""
 {EMOJI.HEALTH} Resource Usage for {bot_name}
 {EMOJI.BAR_CHART} CPU Usage: {resources['cpu_percent']:.1f}%
 {EMOJI.STORAGE} Memory Usage: {resources['memory_used']} ({resources['memory_percent']:.1f}%)
@@ -2396,4 +2443,5 @@ logger.info("Bot is starting...")
 application.run_polling()
 if name == "main":
 main()
+
 
