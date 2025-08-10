@@ -1,4 +1,3 @@
-
 import os
 import threading
 import mimetypes
@@ -22,17 +21,17 @@ class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b'OK')
             return
-
+            
         # Serve files from the mirror directory
         if self.path.startswith('/mirror/'):
             # Sanitize path to prevent directory traversal attacks
             base_path = os.path.abspath(MIRROR_DIR)
             requested_path = os.path.abspath(os.path.join(base_path, self.path.split('/mirror/', 1)[1]))
-
+            
             if not requested_path.startswith(base_path):
                 self.send_error(403, "Forbidden: Access denied.")
                 return
-
+                
             if os.path.isfile(requested_path):
                 try:
                     with open(requested_path, 'rb') as f:
@@ -49,7 +48,7 @@ class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
             else:
                 self.send_error(404, "File Not Found")
             return
-
+            
         # Default response for the root path
         self.send_response(200)
         self.send_header('Content-type', 'text/html')
@@ -99,7 +98,7 @@ def run_web_server():
 def run_bot():
     """Starts the Telegram bot."""
     print("Initializing and starting enhanced Telegram bot...")
-    enhanced_bot.main()
+    bot.main()
 
 if __name__ == '__main__':
     # Ensure all necessary data directories exist before starting
