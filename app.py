@@ -3,7 +3,7 @@ import os
 import threading
 import mimetypes
 from http.server import HTTPServer, SimpleHTTPRequestHandler
-import enhanced_bot  # Import the enhanced bot logic
+import bot  # Import the enhanced bot logic
 
 # --- Configuration ---
 PORT = int(os.environ.get("PORT", 10000))
